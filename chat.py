@@ -3345,30 +3345,121 @@ def agent_swarm(task, model, system):
 
 # --- Team Chat ---
 
-def team_chat(agent1_name, agent2_name, model, system):
-    """Interactive group chat: you + 2 AI agents."""
-    a1 = AI_AGENTS.get(agent1_name)
-    a2 = AI_AGENTS.get(agent2_name)
+# Tool personas — simulate external AI tools in team chat
+TOOL_PERSONAS = {
+    "claude": {
+        "system": (
+            "You are Claude, made by Anthropic. You are thoughtful, careful, and thorough. "
+            "You think step-by-step, consider edge cases, and write clean, safe code. "
+            "You refuse to help with harmful tasks. You're honest about uncertainty."
+        ),
+        "color": "bright_cyan",
+    },
+    "codex": {
+        "system": (
+            "You are Codex by OpenAI. You are a fast, code-first AI. You prefer showing code "
+            "over explaining. You write concise, working solutions. You optimize for simplicity."
+        ),
+        "color": "green",
+    },
+    "gemini": {
+        "system": (
+            "You are Gemini by Google. You have broad knowledge, can reason about images and code. "
+            "You give balanced, well-researched answers. You cite sources when possible."
+        ),
+        "color": "yellow",
+    },
+    "copilot": {
+        "system": (
+            "You are GitHub Copilot. You are an expert pair programmer. You autocomplete code, "
+            "suggest whole functions, and know every framework. Code first, explain second."
+        ),
+        "color": "bright_white",
+    },
+    "gpt": {
+        "system": (
+            "You are ChatGPT by OpenAI. You are helpful, creative, and conversational. "
+            "You explain things clearly and adapt to the user's level. You're good at everything."
+        ),
+        "color": "bright_green",
+    },
+    "mistral": {
+        "system": (
+            "You are Mistral AI. You are fast, efficient, and direct. You give concise answers "
+            "without filler. You're great at code and reasoning. European AI values."
+        ),
+        "color": "bright_red",
+    },
+    "llama": {
+        "system": (
+            "You are Llama by Meta. You are open-source and proud of it. You give solid, "
+            "practical answers. You're competitive with proprietary models. You support open AI."
+        ),
+        "color": "bright_blue",
+    },
+    "deepseek": {
+        "system": (
+            "You are DeepSeek. You think deeply before answering, using chain-of-thought reasoning. "
+            "You show your thinking process. You're especially strong at math and code."
+        ),
+        "color": "bright_magenta",
+    },
+}
 
-    if not a1 or not a2:
-        available = ", ".join(AI_AGENTS.keys())
-        print_sys(f"Unknown agent. Available: {available}")
-        return []
 
+def resolve_team_member(name):
+    """Resolve a name to a team member config: agent, tool persona, or model."""
+    # Check built-in agents first
+    if name in AI_AGENTS:
+        return {
+            "name": name,
+            "system": AI_AGENTS[name]["system"],
+            "model": None,  # Use default model
+            "color": "bright_cyan",
+            "type": "agent",
+        }
+
+    # Check tool personas
+    if name in TOOL_PERSONAS:
+        return {
+            "name": name,
+            "system": TOOL_PERSONAS[name]["system"],
+            "model": None,
+            "color": TOOL_PERSONAS[name]["color"],
+            "type": "tool",
+        }
+
+    # Treat as a model name — use it as the Ollama model
+    return {
+        "name": name,
+        "system": f"You are an AI running on the {name} model. Be helpful, concise, and technical.",
+        "model": name,  # Use this specific model
+        "color": "bright_yellow",
+        "type": "model",
+    }
+
+
+def team_chat(name1, name2, default_model, system):
+    """Interactive group chat: you + 2 AIs. Accepts agents, tools, or models."""
+    m1 = resolve_team_member(name1)
+    m2 = resolve_team_member(name2)
+
+    # Show team info
+    type_labels = {"agent": "Agent", "tool": "AI Tool", "model": "Model"}
     console.print(Panel(
         Text.from_markup(
             f"[bold]Team Chat[/]\n\n"
-            f"  You + [bright_cyan]{agent1_name}[/] + [bright_magenta]{agent2_name}[/]\n\n"
-            f"  Talk normally — both AIs see everything and respond.\n"
-            f"  @{agent1_name} or @{agent2_name} to talk to one.\n"
-            f"  Type [bold]exit[/] to leave team chat.\n"
+            f"  [{m1['color']}]{m1['name']}[/] ({type_labels[m1['type']]})\n"
+            f"  [{m2['color']}]{m2['name']}[/] ({type_labels[m2['type']]})\n\n"
+            f"  Talk normally — both AIs respond.\n"
+            f"  @{m1['name']} or @{m2['name']} to talk to one.\n"
+            f"  Type [bold]exit[/] to leave.\n"
         ),
         title="[bold bright_green]Team Chat[/]",
         border_style="bright_green", padding=(1, 2), width=tw(),
     ))
 
     history = []
-    all_messages = []
 
     while True:
         try:
@@ -3385,7 +3476,6 @@ def team_chat(agent1_name, agent2_name, model, system):
         if user_input.lower() in ("exit", "/exit", "quit", "/quit"):
             break
 
-        # Show user message
         console.print(Panel(
             Text(user_input, style="white"),
             title="[bold bright_cyan]You[/]",
@@ -3397,56 +3487,56 @@ def team_chat(agent1_name, agent2_name, model, system):
         history.append({"role": "user", "speaker": "user", "content": user_input})
 
         # Decide who responds
-        mention_a1 = f"@{agent1_name}" in user_input.lower()
-        mention_a2 = f"@{agent2_name}" in user_input.lower()
+        mention1 = f"@{m1['name']}" in user_input.lower()
+        mention2 = f"@{m2['name']}" in user_input.lower()
 
-        if mention_a1 and not mention_a2:
-            responders = [(agent1_name, a1)]
-        elif mention_a2 and not mention_a1:
-            responders = [(agent2_name, a2)]
+        if mention1 and not mention2:
+            responders = [m1]
+        elif mention2 and not mention1:
+            responders = [m2]
         else:
-            # Both respond
-            responders = [(agent1_name, a1), (agent2_name, a2)]
+            responders = [m1, m2]
 
-        for agent_name, agent in responders:
-            # Build context with full history
+        for member in responders:
+            other = m2 if member == m1 else m1
             conv_history = "\n".join(
                 f"{'You' if h['speaker'] == 'user' else h['speaker']}: {h['content'][:300]}"
                 for h in history[-8:]
             )
 
-            agent_prompt = (
-                f"You are {agent_name} in a group chat with the user and {agent1_name if agent_name == agent2_name else agent2_name}.\n"
-                f"Conversation:\n{conv_history}\n\n"
-                f"Respond as {agent_name}. Be concise. Build on what others said. "
-                f"If the other agent made a mistake, correct it. "
-                f"If you agree, add something new instead of repeating."
+            team_prompt = (
+                f"You are {member['name']} in a group chat with the user and {other['name']}.\n"
+                f"Conversation so far:\n{conv_history}\n\n"
+                f"Respond as {member['name']}. Be concise. Build on what others said. "
+                f"If {other['name']} made a mistake, correct it. "
+                f"If you agree, add something new. Don't repeat what was already said."
             )
+
+            use_model = member["model"] or default_model
 
             try:
                 resp = requests.post(OLLAMA_URL, json={
-                    "model": model,
+                    "model": use_model,
                     "messages": [
-                        {"role": "system", "content": agent["system"]},
-                        {"role": "user", "content": agent_prompt},
+                        {"role": "system", "content": member["system"]},
+                        {"role": "user", "content": team_prompt},
                     ],
                     "stream": False,
                 }, timeout=90)
                 response = resp.json().get("message", {}).get("content", "")
             except Exception as e:
-                response = f"(offline — {e})"
+                response = f"(error — {e})"
 
-            color = "bright_cyan" if agent_name == agent1_name else "bright_magenta"
             console.print(Panel(
                 Markdown(response),
-                title=f"[bold {color}]{agent_name}[/]",
+                title=f"[bold {member['color']}]{member['name']}[/]",
                 title_align="left",
-                border_style=color,
+                border_style=member["color"],
                 padding=(0, 2), width=tw(),
             ))
 
-            history.append({"role": "assistant", "speaker": agent_name, "content": response})
-            bus_send(agent_name, "codegpt", response[:200], "response")
+            history.append({"role": "assistant", "speaker": member["name"], "content": response})
+            bus_send(member["name"], "codegpt", response[:200], "response")
 
     console.print(Panel(
         Text(f"Team chat ended. {len(history)} messages.", style="dim"),
