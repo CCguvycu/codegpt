@@ -461,6 +461,7 @@ COMMANDS = {
     "/race": "Race all models — who answers first",
     "/vote": "All agents vote on a question",
     "/swarm": "Agents collaborate on a task step by step",
+    "/team": "Start a team chat with 2 AIs (/team coder reviewer)",
     "/github": "GitHub tools (/github repos, issues, prs)",
     "/weather": "Get weather (/weather London)",
     "/open": "Open URL in browser (/open google.com)",
@@ -3342,6 +3343,119 @@ def agent_swarm(task, model, system):
     return accumulated
 
 
+# --- Team Chat ---
+
+def team_chat(agent1_name, agent2_name, model, system):
+    """Interactive group chat: you + 2 AI agents."""
+    a1 = AI_AGENTS.get(agent1_name)
+    a2 = AI_AGENTS.get(agent2_name)
+
+    if not a1 or not a2:
+        available = ", ".join(AI_AGENTS.keys())
+        print_sys(f"Unknown agent. Available: {available}")
+        return []
+
+    console.print(Panel(
+        Text.from_markup(
+            f"[bold]Team Chat[/]\n\n"
+            f"  You + [bright_cyan]{agent1_name}[/] + [bright_magenta]{agent2_name}[/]\n\n"
+            f"  Talk normally — both AIs see everything and respond.\n"
+            f"  @{agent1_name} or @{agent2_name} to talk to one.\n"
+            f"  Type [bold]exit[/] to leave team chat.\n"
+        ),
+        title="[bold bright_green]Team Chat[/]",
+        border_style="bright_green", padding=(1, 2), width=tw(),
+    ))
+
+    history = []
+    all_messages = []
+
+    while True:
+        try:
+            user_input = prompt(
+                [("class:prompt", f" You > ")],
+                style=input_style,
+                history=input_history,
+            ).strip()
+        except (KeyboardInterrupt, EOFError):
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "/exit", "quit", "/quit"):
+            break
+
+        # Show user message
+        console.print(Panel(
+            Text(user_input, style="white"),
+            title="[bold bright_cyan]You[/]",
+            title_align="left",
+            border_style="bright_cyan",
+            padding=(0, 2), width=tw(),
+        ))
+
+        history.append({"role": "user", "speaker": "user", "content": user_input})
+
+        # Decide who responds
+        mention_a1 = f"@{agent1_name}" in user_input.lower()
+        mention_a2 = f"@{agent2_name}" in user_input.lower()
+
+        if mention_a1 and not mention_a2:
+            responders = [(agent1_name, a1)]
+        elif mention_a2 and not mention_a1:
+            responders = [(agent2_name, a2)]
+        else:
+            # Both respond
+            responders = [(agent1_name, a1), (agent2_name, a2)]
+
+        for agent_name, agent in responders:
+            # Build context with full history
+            conv_history = "\n".join(
+                f"{'You' if h['speaker'] == 'user' else h['speaker']}: {h['content'][:300]}"
+                for h in history[-8:]
+            )
+
+            agent_prompt = (
+                f"You are {agent_name} in a group chat with the user and {agent1_name if agent_name == agent2_name else agent2_name}.\n"
+                f"Conversation:\n{conv_history}\n\n"
+                f"Respond as {agent_name}. Be concise. Build on what others said. "
+                f"If the other agent made a mistake, correct it. "
+                f"If you agree, add something new instead of repeating."
+            )
+
+            try:
+                resp = requests.post(OLLAMA_URL, json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": agent["system"]},
+                        {"role": "user", "content": agent_prompt},
+                    ],
+                    "stream": False,
+                }, timeout=90)
+                response = resp.json().get("message", {}).get("content", "")
+            except Exception as e:
+                response = f"(offline — {e})"
+
+            color = "bright_cyan" if agent_name == agent1_name else "bright_magenta"
+            console.print(Panel(
+                Markdown(response),
+                title=f"[bold {color}]{agent_name}[/]",
+                title_align="left",
+                border_style=color,
+                padding=(0, 2), width=tw(),
+            ))
+
+            history.append({"role": "assistant", "speaker": agent_name, "content": response})
+            bus_send(agent_name, "codegpt", response[:200], "response")
+
+    console.print(Panel(
+        Text(f"Team chat ended. {len(history)} messages.", style="dim"),
+        border_style="dim", padding=(0, 2), width=tw(),
+    ))
+
+    return history
+
+
 # --- Split Screen ---
 
 def get_tool_cmd(name):
@@ -4739,6 +4853,22 @@ def main():
                     session_stats["messages"] += 2
                 else:
                     print_sys("Usage: /swarm build a REST API for a todo app with auth")
+                continue
+
+            elif cmd == "/team":
+                parts = user_input[len("/team "):].strip().split()
+                if len(parts) >= 2:
+                    history = team_chat(parts[0], parts[1], model, system)
+                    # Add team chat to main conversation
+                    for h in history:
+                        if h["speaker"] == "user":
+                            messages.append({"role": "user", "content": h["content"]})
+                        else:
+                            messages.append({"role": "assistant", "content": f"[{h['speaker']}]: {h['content']}"})
+                    session_stats["messages"] += len(history)
+                else:
+                    print_sys("Usage: /team coder reviewer\n       /team architect pentester\n       /team explainer debugger")
+                    print_sys(f"\nAgents: {', '.join(AI_AGENTS.keys())}")
                 continue
 
             elif cmd == "/monitor":
