@@ -457,6 +457,7 @@ COMMANDS = {
     "/monitor": "Live dashboard — all tools & messages",
     "/feed": "Show all recent tool messages",
     "/hub": "Full hub view — tools, messages, stats",
+    "/sidebar": "Toggle sidebar on/off",
     "/all": "Ask ALL agents at once (/all your question)",
     "/race": "Race all models — who answers first",
     "/vote": "All agents vote on a question",
@@ -804,6 +805,97 @@ def setup_profile():
     console.print()
 
 
+# --- Sidebar ---
+
+sidebar_enabled = False
+SIDEBAR_WIDTH = 26
+
+
+def build_sidebar():
+    """Build the sidebar panel content."""
+    profile = load_profile()
+    name = profile.get("name", "User")
+    persona = profile.get("persona", "default")
+    mem_count = len(load_memories())
+    pin_count = len(pinned_messages)
+    elapsed = int(time.time() - session_stats["start"])
+    msgs = session_stats["messages"]
+    tok = session_stats["tokens_out"]
+    unread = bus_unread("codegpt")
+
+    # Running tools
+    alive_tools = [n for n, i in running_tools.items()
+                   if i.get("proc") is None or i["proc"].poll() is None]
+
+    lines = []
+    lines.append(f"[bold bright_cyan]{name}[/]")
+    lines.append(f"[dim]{'━' * (SIDEBAR_WIDTH - 4)}[/]")
+    lines.append("")
+
+    # Session
+    lines.append("[bold]Session[/]")
+    lines.append(f"  [dim]Messages[/]  [bright_cyan]{msgs}[/]")
+    lines.append(f"  [dim]Tokens[/]    [bright_cyan]{tok}[/]")
+    lines.append(f"  [dim]Uptime[/]    [bright_cyan]{elapsed // 60}m {elapsed % 60}s[/]")
+    lines.append(f"  [dim]Persona[/]   [green]{persona}[/]")
+    lines.append("")
+
+    # Think mode / temp
+    lines.append("[bold]Config[/]")
+    lines.append(f"  [dim]Think[/]     {'[green]ON[/]' if think_mode else '[dim]off[/]'}")
+    lines.append(f"  [dim]Temp[/]      [bright_cyan]{temperature}[/]")
+    lines.append("")
+
+    # Memory & Pins
+    lines.append("[bold]Data[/]")
+    lines.append(f"  [dim]Memories[/]  [bright_cyan]{mem_count}[/]")
+    lines.append(f"  [dim]Pinned[/]    [bright_cyan]{pin_count}[/]")
+    if unread > 0:
+        lines.append(f"  [dim]Inbox[/]     [bold red]{unread} new[/]")
+    lines.append("")
+
+    # Running tools
+    if alive_tools:
+        lines.append("[bold]Running[/]")
+        for t in alive_tools[:5]:
+            lines.append(f"  [green]●[/] {t}")
+        lines.append("")
+
+    # Quick commands
+    lines.append("[bold]Quick[/]")
+    lines.append("  [dim]/h[/] help")
+    lines.append("  [dim]/m[/] model")
+    lines.append("  [dim]/t[/] think")
+    lines.append("  [dim]/a[/] all agents")
+    lines.append("  [dim]/u[/] usage")
+
+    return "\n".join(lines)
+
+
+def print_with_sidebar(panel):
+    """Print a panel with sidebar if enabled."""
+    if not sidebar_enabled or console.width < 80:
+        console.print(panel)
+        return
+
+    from rich.columns import Columns
+
+    sidebar = Panel(
+        Text.from_markup(build_sidebar()),
+        title="[dim]sidebar[/]",
+        border_style="bright_black",
+        width=SIDEBAR_WIDTH,
+        padding=(0, 1),
+    )
+
+    # Adjust main panel width
+    main_width = tw() - SIDEBAR_WIDTH - 2
+    if hasattr(panel, 'width'):
+        panel.width = main_width
+
+    console.print(Columns([sidebar, panel], padding=1))
+
+
 # --- UI Components ---
 
 def tw():
@@ -972,7 +1064,7 @@ def print_user_msg(text):
 
 
 def print_ai_msg(text, stats=""):
-    console.print(Panel(
+    panel = Panel(
         Markdown(text),
         title="[bold bright_green]AI[/]",
         title_align="left",
@@ -981,7 +1073,8 @@ def print_ai_msg(text, stats=""):
         subtitle_align="right",
         padding=(0, 2),
         width=tw(),
-    ))
+    )
+    print_with_sidebar(panel)
 
 
 def print_sys(text):
@@ -3894,7 +3987,7 @@ def get_input():
 # --- Main ---
 
 def main():
-    global last_ai_response, code_exec_count, OLLAMA_URL
+    global last_ai_response, code_exec_count, OLLAMA_URL, sidebar_enabled
 
     # Pipe support: echo "question" | ai
     if not sys.stdin.isatty():
@@ -4959,6 +5052,14 @@ def main():
                 else:
                     print_sys("Usage: /team coder reviewer\n       /team architect pentester\n       /team explainer debugger")
                     print_sys(f"\nAgents: {', '.join(AI_AGENTS.keys())}")
+                continue
+
+            elif cmd == "/sidebar":
+                sidebar_enabled = not sidebar_enabled
+                state = "ON" if sidebar_enabled else "OFF"
+                print_sys(f"Sidebar: {state}")
+                if sidebar_enabled and console.width < 80:
+                    print_sys("Terminal too narrow for sidebar. Widen to 80+ chars.")
                 continue
 
             elif cmd == "/monitor":
