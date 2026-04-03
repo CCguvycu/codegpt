@@ -3387,27 +3387,56 @@ def main():
         available_models = [m["name"] for m in resp.json().get("models", [])]
     except requests.ConnectionError:
         clear_screen()
-        console.print(Panel(
-            Text("Starting Ollama...", style="bold yellow"),
-            border_style="yellow",
-        ))
-        subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.DETACHED_PROCESS if os.name == "nt" else 0,
-        )
-        for _ in range(15):
-            time.sleep(1)
+        if shutil.which("ollama"):
+            console.print(Panel(
+                Text("Starting Ollama...", style="bold yellow"),
+                border_style="yellow",
+            ))
             try:
-                resp = requests.get("http://localhost:11434/api/tags", timeout=2)
-                available_models = [m["name"] for m in resp.json().get("models", [])]
-                break
-            except requests.ConnectionError:
-                continue
-        else:
-            print_err("Failed to start Ollama.")
-            sys.exit(1)
+                subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.DETACHED_PROCESS if os.name == "nt" else 0,
+                )
+                for _ in range(15):
+                    time.sleep(1)
+                    try:
+                        resp = requests.get("http://localhost:11434/api/tags", timeout=2)
+                        available_models = [m["name"] for m in resp.json().get("models", [])]
+                        break
+                    except requests.ConnectionError:
+                        continue
+            except Exception:
+                pass
+        if not available_models:
+            console.print(Panel(
+                Text.from_markup(
+                    "[bold yellow]Ollama not found or not running.[/]\n\n"
+                    "  Install:  [bright_cyan]https://ollama.com[/]\n"
+                    "  Or set OLLAMA_URL to a remote server:\n"
+                    "    [dim]export OLLAMA_URL=http://YOUR_PC_IP:11434/api/chat[/]"
+                ),
+                title="[bold yellow]No AI Backend[/]",
+                border_style="yellow", padding=(1, 2),
+            ))
+            try:
+                remote = prompt([("class:prompt", " Remote Ollama URL (or Enter to quit) > ")], style=input_style).strip()
+                if remote:
+                    global OLLAMA_URL
+                    OLLAMA_URL = remote if "/api/chat" in remote else f"{remote.rstrip('/')}/api/chat"
+                    console.print(Panel(Text(f"Connected to: {OLLAMA_URL}", style="green"), border_style="green"))
+                    try:
+                        base = OLLAMA_URL.replace("/api/chat", "/api/tags")
+                        resp = requests.get(base, timeout=5)
+                        available_models = [m["name"] for m in resp.json().get("models", [])]
+                    except Exception:
+                        print_err("Cannot reach that URL.")
+                        sys.exit(1)
+                else:
+                    sys.exit(0)
+            except (KeyboardInterrupt, EOFError):
+                sys.exit(0)
 
     # Load profile
     profile = load_profile()
