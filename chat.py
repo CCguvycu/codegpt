@@ -22,7 +22,7 @@ from rich.live import Live
 from rich.rule import Rule
 from rich.align import Align
 from prompt_toolkit import prompt
-from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.history import InMemoryHistory, FileHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style as PtStyle
 
@@ -369,13 +369,19 @@ active_reminders = []
 reminder_lock = threading.Lock()
 
 console = Console()
-input_history = InMemoryHistory()
+_hist_path = Path.home() / ".codegpt" / "input_history"
+_hist_path.parent.mkdir(parents=True, exist_ok=True)
+try:
+    input_history = FileHistory(str(_hist_path))
+except Exception:
+    input_history = InMemoryHistory()
 class SlashCompleter(Completer):
     """Show all commands when typing /"""
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor.lstrip()
         if text.startswith("/"):
             typed = text.lower()
+            # Main commands
             for cmd, desc in COMMANDS.items():
                 if cmd.startswith(typed):
                     yield Completion(
@@ -383,6 +389,16 @@ class SlashCompleter(Completer):
                         start_position=-len(text),
                         display=f"{cmd}",
                         display_meta=desc,
+                    )
+            # Aliases
+            for alias, target in ALIASES.items():
+                if alias.startswith(typed) and alias not in COMMANDS:
+                    desc = COMMANDS.get(target, "")
+                    yield Completion(
+                        alias,
+                        start_position=-len(text),
+                        display=f"{alias}",
+                        display_meta=f"-> {target}",
                     )
 
 cmd_completer = SlashCompleter()
@@ -678,6 +694,49 @@ LOGO = """
 [bright_cyan]  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝[/][bold white]  ╚═════╝ ╚═╝        ╚═╝   [/]
 [dim]         Your Local AI Assistant — Powered by Ollama[/]"""
 
+# --- Command Aliases ---
+ALIASES = {
+    "/q": "/quit", "/x": "/quit", "/exit": "/quit",
+    "/n": "/new", "/s": "/save", "/l": "/load",
+    "/c": "/copy", "/r": "/regen", "/e": "/edit",
+    "/h": "/help", "/m": "/model", "/t": "/think",
+    "/f": "/file", "/v": "/voice",
+    "/a": "/all", "/ag": "/agent", "/sw": "/swarm",
+    "/p": "/prompts", "/pr": "/profile",
+    "/u": "/usage", "/tk": "/tokens",
+    "/gh": "/github", "/sp": "/spotify",
+    "/w": "/weather", "/si": "/sysinfo",
+    "/con": "/connect", "/srv": "/server",
+    "/mon": "/monitor",
+}
+
+# --- Tips ---
+TIPS = [
+    "Type / to see all commands with autocomplete",
+    "/think toggles deep reasoning mode",
+    "/all asks ALL 8 agents your question at once",
+    "/swarm runs a 6-agent pipeline on any task",
+    "/split claude codex opens both side by side",
+    "/connect IP connects to a remote Ollama server",
+    "/qr generates a QR code to connect from your phone",
+    "/train collect saves this chat as AI training data",
+    "/mem save remembers things across sessions",
+    "/rate good after a response improves future training",
+    "/persona hacker changes the AI personality",
+    "/lab bench benchmarks a prompt across all models",
+    "/chain chains prompts: /chain explain X | simplify | give code",
+    "/dm coder write a Flask app — instant agent response",
+    "/fork 5 branches the conversation from message #5",
+    "/compact summarizes old messages to save context",
+    "/bg claude launches Claude Code in a new window",
+    "You can pipe input: echo 'question' | ai",
+    "/shortcuts shows all keyboard shortcuts",
+    "/tools lists all 25 AI CLI integrations",
+]
+
+# --- Persistent History ---
+HISTORY_FILE = Path.home() / ".codegpt" / "input_history"
+
 
 def print_header(model):
     clear_screen()
@@ -713,6 +772,7 @@ def print_header(model):
 
 def print_welcome(model, available_models):
     w = tw()
+    import random
 
     # Greeting
     hour = datetime.now().hour
@@ -724,7 +784,28 @@ def print_welcome(model, available_models):
         greeting = "Good evening"
 
     console.print(Align.center(Text(f"\n{greeting}.\n", style="bold white")), width=w)
-    console.print(Align.center(Text("How can I help you today?\n", style="dim")), width=w)
+
+    # Connection status bar
+    is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
+    server_type = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0]
+    model_count = len(available_models)
+    mem_count = len(load_memories())
+    profile = load_profile()
+    streak = profile.get("total_sessions", 0)
+
+    status = Text()
+    status.append("  ◈ ", style="bright_cyan")
+    status.append(f"{model}", style="bold bright_cyan")
+    status.append("  │  ", style="dim")
+    status.append(f"◇ {server_type}", style="green" if model_count > 0 else "red")
+    status.append("  │  ", style="dim")
+    status.append(f"△ {model_count} models", style="dim")
+    status.append("  │  ", style="dim")
+    status.append(f"◇ {mem_count} memories", style="dim")
+    if streak > 1:
+        status.append("  │  ", style="dim")
+        status.append(f"▸ {streak} sessions", style="dim")
+    console.print(Panel(status, border_style="bright_black", padding=0, width=w))
 
     # Suggestion chips
     console.print(Panel(
@@ -735,6 +816,10 @@ def print_welcome(model, available_models):
         padding=(1, 2),
         width=w,
     ))
+
+    # Tip of the day
+    tip = random.choice(TIPS)
+    console.print(Align.center(Text(f"Tip: {tip}", style="dim italic")), width=w)
     console.print()
 
 
@@ -3450,6 +3535,16 @@ def stream_response(messages, system, model):
 
 # --- Input ---
 
+def _bottom_toolbar():
+    """Live stats in the bottom toolbar."""
+    elapsed = int(time.time() - session_stats["start"])
+    mins = elapsed // 60
+    msgs = session_stats["messages"]
+    tok = session_stats["tokens_out"]
+    return [("class:bottom-toolbar",
+             f" {msgs} msgs │ {tok} tok │ {mins}m │ / for commands │ Ctrl+C to exit ")]
+
+
 def get_input():
     try:
         return prompt(
@@ -3458,6 +3553,7 @@ def get_input():
             history=input_history,
             completer=cmd_completer,
             complete_while_typing=True,
+            bottom_toolbar=_bottom_toolbar,
         ).strip()
     except (KeyboardInterrupt, EOFError):
         return None
@@ -3466,7 +3562,25 @@ def get_input():
 # --- Main ---
 
 def main():
-    global last_ai_response, code_exec_count
+    global last_ai_response, code_exec_count, OLLAMA_URL
+
+    # Pipe support: echo "question" | ai
+    if not sys.stdin.isatty():
+        piped = sys.stdin.read().strip()
+        if piped:
+            try:
+                resp = requests.post(
+                    OLLAMA_URL,
+                    json={"model": MODEL, "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": piped},
+                    ], "stream": False},
+                    timeout=120,
+                )
+                print(resp.json().get("message", {}).get("content", ""))
+            except Exception as e:
+                print(f"Error: {e}", file=sys.stderr)
+            return
 
     # PIN login
     if not pin_login():
@@ -3475,7 +3589,6 @@ def main():
 
     # Connect to Ollama — never crash, always start the CLI
     available_models = []
-    global OLLAMA_URL
 
     def try_connect(url):
         """Try to connect to an Ollama instance."""
@@ -3614,6 +3727,12 @@ def main():
         # Commands
         if user_input.startswith("/"):
             cmd = user_input.split()[0].lower()
+
+            # Resolve aliases
+            if cmd in ALIASES:
+                real_cmd = ALIASES[cmd]
+                user_input = real_cmd + user_input[len(cmd):]
+                cmd = real_cmd
 
             if cmd == "/quit":
                 cancel_all_reminders()
