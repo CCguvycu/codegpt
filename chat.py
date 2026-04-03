@@ -261,6 +261,8 @@ COMMANDS = {
     "/connect": "Connect to remote Ollama (/connect 192.168.1.237)",
     "/disconnect": "Switch back to local Ollama",
     "/server": "Show current Ollama server",
+    "/qr": "Show QR code to connect from phone",
+    "/scan": "Scan QR code to connect to a server",
     "/profile": "View your profile",
     "/setname": "Set display name",
     "/setbio": "Set bio",
@@ -5189,6 +5191,133 @@ def main():
                     for m in test_models[:10]:
                         console.print(f"    [bright_cyan]{m}[/]")
                 console.print()
+                continue
+
+            elif cmd == "/qr":
+                # Generate QR code with this machine's Ollama URL
+                import socket
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    local_ip = s.getsockname()[0]
+                    s.close()
+                except Exception:
+                    local_ip = "127.0.0.1"
+
+                qr_url = f"http://{local_ip}:11434/api/chat"
+
+                # Build QR code in terminal using Unicode blocks
+                qr_data = qr_url
+                try:
+                    # Try qrcode library
+                    import qrcode
+                    qr = qrcode.QRCode(border=1)
+                    qr.add_data(qr_data)
+                    qr.make(fit=True)
+
+                    lines = []
+                    matrix = qr.get_matrix()
+                    for row in matrix:
+                        line = ""
+                        for cell in row:
+                            line += "██" if cell else "  "
+                        lines.append(line)
+                    qr_text = "\n".join(lines)
+                except ImportError:
+                    # Fallback: simple ASCII QR using block chars
+                    # Encode URL into a visual pattern
+                    qr_text = ""
+                    chars = qr_data
+                    size = max(len(chars), 21)
+                    import hashlib as _h
+                    seed = _h.md5(chars.encode()).digest()
+                    for y in range(21):
+                        row = ""
+                        for x in range(21):
+                            # Fixed patterns for QR corners
+                            if (x < 7 and y < 7) or (x >= 14 and y < 7) or (x < 7 and y >= 14):
+                                border = (x in (0,6) or y in (0,6) or (2<=x<=4 and 2<=y<=4) or
+                                         (x in (0,6) and True) or (y in (0,6) and True))
+                                if x < 7 and y < 7:
+                                    if x in (0,6) or y in (0,6):
+                                        row += "██"
+                                    elif 2<=x<=4 and 2<=y<=4:
+                                        row += "██"
+                                    else:
+                                        row += "  "
+                                elif x >= 14 and y < 7:
+                                    nx = x - 14
+                                    if nx in (0,6) or y in (0,6):
+                                        row += "██"
+                                    elif 2<=nx<=4 and 2<=y<=4:
+                                        row += "██"
+                                    else:
+                                        row += "  "
+                                else:
+                                    nx = x
+                                    ny = y - 14
+                                    if nx in (0,6) or ny in (0,6):
+                                        row += "██"
+                                    elif 2<=nx<=4 and 2<=ny<=4:
+                                        row += "██"
+                                    else:
+                                        row += "  "
+                            else:
+                                idx = (y * 21 + x) % len(seed)
+                                row += "██" if seed[idx] & (1 << (x % 8)) else "  "
+                        qr_text += row + "\n"
+                    qr_text += f"\n  (Install 'qrcode' for a real scannable QR)"
+                    qr_text += f"\n  pip install qrcode"
+
+                console.print(Panel(
+                    Text.from_markup(
+                        f"[white]{qr_text}[/]\n\n"
+                        f"  [bold]Scan this QR code on your phone[/]\n"
+                        f"  Or type on Termux:\n\n"
+                        f"  [bright_cyan]/connect {local_ip}[/]\n\n"
+                        f"  URL: [dim]{qr_url}[/]"
+                    ),
+                    title="[bold bright_cyan]Connect via QR[/]",
+                    border_style="bright_cyan", padding=(1, 2), width=tw(),
+                ))
+                console.print()
+                continue
+
+            elif cmd == "/scan":
+                # On phone: scan QR or paste URL
+                print_sys("Paste the URL from the QR code or type the IP:")
+                try:
+                    scanned = prompt([("class:prompt", " URL or IP > ")], style=input_style).strip()
+                    if scanned:
+                        if not scanned.startswith("http"):
+                            scanned = "http://" + scanned
+                        if ":" not in scanned.split("//")[1]:
+                            scanned += ":11434"
+                        new_url = scanned if "/api/chat" in scanned else f"{scanned.rstrip('/')}/api/chat"
+
+                        test_models = try_connect(new_url)
+                        if test_models:
+                            OLLAMA_URL = new_url
+                            available_models = test_models
+                            model = available_models[0] if available_models else MODEL
+
+                            config_file = Path.home() / ".codegpt" / "ollama_url"
+                            config_file.parent.mkdir(parents=True, exist_ok=True)
+                            config_file.write_text(OLLAMA_URL)
+
+                            console.print(Panel(
+                                Text.from_markup(
+                                    f"[bold green]Connected![/]\n\n"
+                                    f"  Server:  [bright_cyan]{OLLAMA_URL}[/]\n"
+                                    f"  Models:  [bright_cyan]{len(available_models)}[/]\n"
+                                ),
+                                border_style="green", padding=(0, 2), width=tw(),
+                            ))
+                            audit_log("QR_CONNECT", OLLAMA_URL)
+                        else:
+                            print_err(f"Cannot reach {new_url}")
+                except (KeyboardInterrupt, EOFError):
+                    print_sys("Cancelled.")
                 continue
 
             elif cmd == "/security":
