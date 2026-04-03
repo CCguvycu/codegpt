@@ -28,7 +28,7 @@ from prompt_toolkit.styles import Style as PtStyle
 
 # --- Config ---
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL = "llama3.2"
 CHATS_DIR = Path.home() / ".codegpt" / "conversations"
 SYSTEM_PROMPT = """You are an AI modeled after a highly technical, system-focused developer mindset.
@@ -3380,63 +3380,95 @@ def main():
         sys.exit(0)
     audit_log("SESSION_START")
 
-    # Auto-start Ollama
+    # Connect to Ollama — never crash, always start the CLI
     available_models = []
-    try:
-        resp = requests.get("http://localhost:11434/api/tags", timeout=3)
-        available_models = [m["name"] for m in resp.json().get("models", [])]
-    except requests.ConnectionError:
+    global OLLAMA_URL
+
+    def try_connect(url):
+        """Try to connect to an Ollama instance."""
+        try:
+            base = url.replace("/api/chat", "/api/tags")
+            resp = requests.get(base, timeout=3)
+            return [m["name"] for m in resp.json().get("models", [])]
+        except Exception:
+            return []
+
+    # Try 1: Current OLLAMA_URL
+    available_models = try_connect(OLLAMA_URL)
+
+    # Try 2: Auto-start local Ollama
+    if not available_models and shutil.which("ollama"):
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS if os.name == "nt" else 0,
+            )
+            for _ in range(10):
+                time.sleep(1)
+                available_models = try_connect(OLLAMA_URL)
+                if available_models:
+                    break
+        except Exception:
+            pass
+
+    # Try 3: Check common remote addresses
+    if not available_models:
+        for remote in ["http://192.168.1.237:11434/api/chat",
+                       "http://10.0.2.2:11434/api/chat"]:
+            models = try_connect(remote)
+            if models:
+                OLLAMA_URL = remote
+                available_models = models
+                break
+
+    # Try 4: Ask user (but don't quit if they skip)
+    if not available_models:
         clear_screen()
-        if shutil.which("ollama"):
-            console.print(Panel(
-                Text("Starting Ollama...", style="bold yellow"),
-                border_style="yellow",
-            ))
-            try:
-                subprocess.Popen(
-                    ["ollama", "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=subprocess.DETACHED_PROCESS if os.name == "nt" else 0,
-                )
-                for _ in range(15):
-                    time.sleep(1)
-                    try:
-                        resp = requests.get("http://localhost:11434/api/tags", timeout=2)
-                        available_models = [m["name"] for m in resp.json().get("models", [])]
-                        break
-                    except requests.ConnectionError:
-                        continue
-            except Exception:
-                pass
-        if not available_models:
-            console.print(Panel(
-                Text.from_markup(
-                    "[bold yellow]Ollama not found or not running.[/]\n\n"
-                    "  Install:  [bright_cyan]https://ollama.com[/]\n"
-                    "  Or set OLLAMA_URL to a remote server:\n"
-                    "    [dim]export OLLAMA_URL=http://YOUR_PC_IP:11434/api/chat[/]"
-                ),
-                title="[bold yellow]No AI Backend[/]",
-                border_style="yellow", padding=(1, 2),
-            ))
-            try:
-                remote = prompt([("class:prompt", " Remote Ollama URL (or Enter to quit) > ")], style=input_style).strip()
-                if remote:
-                    global OLLAMA_URL
-                    OLLAMA_URL = remote if "/api/chat" in remote else f"{remote.rstrip('/')}/api/chat"
-                    console.print(Panel(Text(f"Connected to: {OLLAMA_URL}", style="green"), border_style="green"))
-                    try:
-                        base = OLLAMA_URL.replace("/api/chat", "/api/tags")
-                        resp = requests.get(base, timeout=5)
-                        available_models = [m["name"] for m in resp.json().get("models", [])]
-                    except Exception:
-                        print_err("Cannot reach that URL.")
-                        sys.exit(1)
+        console.print(Panel(
+            Text.from_markup(
+                "[bold yellow]No AI backend found.[/]\n\n"
+                "  [bold]Options:[/]\n"
+                "  1. Enter your PC's Ollama URL below\n"
+                "  2. Press Enter to start offline (commands still work)\n"
+                "  3. Install Ollama: [bright_cyan]https://ollama.com[/]\n"
+            ),
+            title="[bold yellow]Setup[/]",
+            border_style="yellow", padding=(1, 2),
+        ))
+        try:
+            remote = prompt([("class:prompt", " Ollama URL (or Enter to skip) > ")], style=input_style).strip()
+            if remote:
+                if not remote.startswith("http"):
+                    remote = "http://" + remote
+                OLLAMA_URL = remote if "/api/chat" in remote else f"{remote.rstrip('/')}/api/chat"
+                available_models = try_connect(OLLAMA_URL)
+                if available_models:
+                    console.print(Panel(Text(f"Connected: {OLLAMA_URL}", style="green"), border_style="green"))
+                    # Save for next time
+                    config_file = Path.home() / ".codegpt" / "ollama_url"
+                    config_file.parent.mkdir(parents=True, exist_ok=True)
+                    config_file.write_text(OLLAMA_URL)
                 else:
-                    sys.exit(0)
-            except (KeyboardInterrupt, EOFError):
-                sys.exit(0)
+                    print_sys("Cannot reach that URL. Starting offline.")
+        except (KeyboardInterrupt, EOFError):
+            pass
+
+    # Try 5: Load saved URL from last session
+    if not available_models:
+        saved_url = Path.home() / ".codegpt" / "ollama_url"
+        if saved_url.exists():
+            saved = saved_url.read_text().strip()
+            if saved:
+                models = try_connect(saved)
+                if models:
+                    OLLAMA_URL = saved
+                    available_models = models
+
+    # Always continue — offline mode if no backend
+    if not available_models:
+        available_models = [MODEL]  # Use default model name as placeholder
 
     # Load profile
     profile = load_profile()
