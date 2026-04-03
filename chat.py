@@ -258,6 +258,9 @@ COMMANDS = {
     "/lock": "Lock session now",
     "/audit": "View security audit log",
     "/security": "Security status dashboard",
+    "/connect": "Connect to remote Ollama (/connect 192.168.1.237)",
+    "/disconnect": "Switch back to local Ollama",
+    "/server": "Show current Ollama server",
     "/profile": "View your profile",
     "/setname": "Set display name",
     "/setbio": "Set bio",
@@ -5108,6 +5111,84 @@ def main():
                         print_sys("Cannot read audit log.")
                 else:
                     print_sys("No audit events yet.")
+                continue
+
+            elif cmd == "/connect":
+                addr = user_input[len("/connect "):].strip()
+                if addr:
+                    if not addr.startswith("http"):
+                        addr = "http://" + addr
+                    if ":" not in addr.split("//")[1]:
+                        addr += ":11434"
+                    new_url = addr if "/api/chat" in addr else f"{addr.rstrip('/')}/api/chat"
+
+                    # Test connection
+                    test_models = try_connect(new_url)
+                    if test_models:
+                        OLLAMA_URL = new_url
+                        available_models = test_models
+                        model = available_models[0] if available_models else MODEL
+
+                        # Save for next session
+                        config_file = Path.home() / ".codegpt" / "ollama_url"
+                        config_file.parent.mkdir(parents=True, exist_ok=True)
+                        config_file.write_text(OLLAMA_URL)
+
+                        console.print(Panel(
+                            Text.from_markup(
+                                f"[bold green]Connected![/]\n\n"
+                                f"  Server:  [bright_cyan]{OLLAMA_URL}[/]\n"
+                                f"  Models:  [bright_cyan]{len(available_models)}[/] ({', '.join(available_models[:5])})\n"
+                                f"  Active:  [bright_cyan]{model}[/]\n\n"
+                                f"[dim]Saved — will auto-connect next session.[/]"
+                            ),
+                            title="[bold green]Remote Connected[/]",
+                            border_style="green", padding=(1, 2), width=tw(),
+                        ))
+                        audit_log("REMOTE_CONNECT", OLLAMA_URL)
+                    else:
+                        print_err(f"Cannot reach {new_url}")
+                        print_sys("Make sure Ollama is running on that machine:\n  OLLAMA_HOST=0.0.0.0 ollama serve")
+                else:
+                    print_sys("Usage: /connect 192.168.1.237\n       /connect mypc.local\n       /connect 10.0.0.5:11434")
+                continue
+
+            elif cmd == "/disconnect":
+                OLLAMA_URL = "http://localhost:11434/api/chat"
+                saved = Path.home() / ".codegpt" / "ollama_url"
+                if saved.exists():
+                    saved.unlink()
+                test_models = try_connect(OLLAMA_URL)
+                if test_models:
+                    available_models = test_models
+                    print_sys(f"Switched to local Ollama. {len(available_models)} models.")
+                else:
+                    print_sys("Switched to local. Ollama not running locally.")
+                continue
+
+            elif cmd == "/server":
+                is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
+                test_models = try_connect(OLLAMA_URL)
+                status = "[green]connected[/]" if test_models else "[red]unreachable[/]"
+                saved = Path.home() / ".codegpt" / "ollama_url"
+                saved_url = saved.read_text().strip() if saved.exists() else "none"
+
+                console.print(Panel(
+                    Text.from_markup(
+                        f"[bold bright_cyan]Ollama Server[/]\n"
+                        f"{'━' * 36}\n\n"
+                        f"  URL:       [bright_cyan]{OLLAMA_URL}[/]\n"
+                        f"  Type:      [bright_cyan]{'local' if is_local else 'remote'}[/]\n"
+                        f"  Status:    {status}\n"
+                        f"  Models:    [bright_cyan]{len(test_models) if test_models else 0}[/]\n"
+                        f"  Saved URL: [dim]{saved_url}[/]\n"
+                    ),
+                    border_style="bright_cyan", padding=(1, 2), width=tw(),
+                ))
+                if test_models:
+                    for m in test_models[:10]:
+                        console.print(f"    [bright_cyan]{m}[/]")
+                console.print()
                 continue
 
             elif cmd == "/security":
