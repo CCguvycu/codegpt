@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codegpt"
+version = "1.0.0"
+description = "Local AI Assistant Hub — CLI, agents, training, 15+ tool integrations"
+readme = "CLAUDE.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "ArukuX"}]
+
+dependencies = [
+    "requests>=2.31.0",
+    "rich>=13.0.0",
+    "prompt-toolkit>=3.0.0",
+]
+
+[project.optional-dependencies]
+full = [
+    "textual>=0.40.0",
+    "python-telegram-bot>=20.0",
+    "flask>=3.0.0",
+    "groq>=0.4.0",
+    "SpeechRecognition>=3.10.0",
+]
+
+[project.scripts]
+ai = "ai_cli.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ai_cli*"]

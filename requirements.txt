@@ -1,0 +1,12 @@
+requests>=2.31.0
+rich>=13.0.0
+prompt_toolkit>=3.0.0
+textual>=1.0.0
+python-telegram-bot>=21.0
+SpeechRecognition>=3.10.0
+# PyAudio - install separately for voice input:
+#   pipwin install pyaudio  OR
+#   pip install pipwin && pipwin install pyaudio
+flask>=3.0.0
+groq>=0.4.0
+flet>=0.20.0
