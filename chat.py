@@ -161,7 +161,6 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "None",
     },
-}
     "llm": {
         "name": "LLM",
         "desc": "Simon Willison's multi-model CLI",
