@@ -33,6 +33,7 @@
     "bin/",
     "chat.py",
     "ai_cli/",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "README.md"
   ]
 }
