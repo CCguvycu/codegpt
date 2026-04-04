@@ -32,8 +32,8 @@ try {
     exit 1
 }
 
-# Step 2: Download
-Write-Host "  [2/4] Downloading ai.exe..." -ForegroundColor Yellow
+# Step 2: Download with checksum verification
+Write-Host "  [2/5] Downloading ai.exe..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
 try {
@@ -43,6 +43,42 @@ try {
 } catch {
     Write-Host "  ERROR: Download failed: $_" -ForegroundColor Red
     exit 1
+}
+
+# Step 2b: Verify SHA256 checksum
+Write-Host "  [2b/5] Verifying integrity..." -ForegroundColor Yellow
+$shaAsset = $release.assets | Where-Object { $_.name -eq "ai.exe.sha256" } | Select-Object -First 1
+
+if ($shaAsset) {
+    try {
+        $shaContent = (Invoke-WebRequest -Uri $shaAsset.browser_download_url -UseBasicParsing).Content
+        # Extract hex hash from certutil output
+        $expectedHash = ($shaContent -split "`n" | Where-Object { $_ -match '^[0-9a-fA-F]{64}$' } | Select-Object -First 1).Trim()
+
+        if (-not $expectedHash) {
+            # Try extracting from any line with 64 hex chars
+            $expectedHash = [regex]::Match($shaContent, '[0-9a-fA-F]{64}').Value
+        }
+
+        $actualHash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash.ToLower()
+
+        if ($expectedHash -and ($actualHash -eq $expectedHash.ToLower())) {
+            Write-Host "  Checksum verified: $($actualHash.Substring(0,16))..." -ForegroundColor Green
+        } elseif ($expectedHash) {
+            Write-Host "  CHECKSUM MISMATCH!" -ForegroundColor Red
+            Write-Host "  Expected: $expectedHash" -ForegroundColor Red
+            Write-Host "  Got:      $actualHash" -ForegroundColor Red
+            Write-Host "  Download may be tampered with. Aborting." -ForegroundColor Red
+            Remove-Item -Force $exePath
+            exit 1
+        } else {
+            Write-Host "  WARNING: Could not parse checksum file." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  WARNING: Could not verify checksum: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  WARNING: No checksum file in release. Cannot verify integrity." -ForegroundColor Yellow
 }
 
 # Step 3: Add to PATH

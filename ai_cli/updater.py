@@ -148,17 +148,63 @@ def force_update():
         return
 
     asset = exe_assets[0]
+
+    # Find checksum file in release assets
+    sha_assets = [a for a in release.get("assets", []) if a["name"].endswith(".sha256")]
+    expected_hash = None
+    if sha_assets:
+        try:
+            sha_resp = requests.get(sha_assets[0]["browser_download_url"], timeout=10)
+            # Parse certutil output: second line is the hash
+            lines = sha_resp.text.strip().splitlines()
+            for line in lines:
+                line = line.strip().replace(" ", "")
+                if len(line) == 64 and all(c in "0123456789abcdef" for c in line.lower()):
+                    expected_hash = line.lower()
+                    break
+        except Exception:
+            pass
+
     console.print(f"  Downloading {asset['name']} ({latest_tag})...")
+    if expected_hash:
+        console.print(f"  Expected SHA256: {expected_hash[:16]}...")
+    else:
+        console.print("[yellow]  WARNING: No checksum file found. Cannot verify integrity.[/]")
 
     try:
         resp = requests.get(asset["browser_download_url"], stream=True, timeout=60)
         resp.raise_for_status()
 
-        # Download to temp file
+        # Download to temp file and compute hash
+        import hashlib as _hashlib
+        sha256 = _hashlib.sha256()
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".exe")
         for chunk in resp.iter_content(chunk_size=8192):
             tmp.write(chunk)
+            sha256.update(chunk)
         tmp.close()
+
+        actual_hash = sha256.hexdigest().lower()
+        console.print(f"  Actual SHA256:   {actual_hash[:16]}...")
+
+        # Verify checksum if available
+        if expected_hash and actual_hash != expected_hash:
+            console.print(Panel(
+                Text(
+                    "CHECKSUM MISMATCH — download may be tampered with.\n"
+                    f"Expected: {expected_hash}\n"
+                    f"Got:      {actual_hash}\n\n"
+                    "Update aborted for your safety.",
+                    style="bold red"
+                ),
+                title="[bold red]SECURITY ALERT[/]",
+                border_style="red",
+            ))
+            os.unlink(tmp.name)
+            return
+
+        if expected_hash:
+            console.print("[green]  Checksum verified.[/]")
 
         if _is_frozen():
             # Replace the running exe
@@ -172,7 +218,7 @@ def force_update():
             shutil.move(tmp.name, current_exe)
 
             console.print(Panel(
-                Text(f"Updated: v{current} -> {latest_tag}\nRestart to use the new version.", style="green"),
+                Text(f"Updated: v{current} -> {latest_tag}\nChecksum: {actual_hash[:16]}...\nRestart to use the new version.", style="green"),
                 border_style="green",
             ))
         else:

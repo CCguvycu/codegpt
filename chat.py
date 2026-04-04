@@ -481,14 +481,16 @@ AUTO_LOCK_MINUTES = 10
 last_activity = [time.time()]
 
 
-def hash_pin(pin):
-    """Hash a PIN with salt."""
-    salt = "codegpt_v1_salt"
-    return hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
+def hash_pin(pin, salt=None):
+    """Hash a PIN with a random salt. Returns 'salt:hash'."""
+    if salt is None:
+        salt = base64.b64encode(os.urandom(16)).decode("ascii")
+    pin_hash = hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
+    return f"{salt}:{pin_hash}"
 
 
 def set_pin(pin):
-    """Set a new PIN."""
+    """Set a new PIN with a random salt."""
     PIN_FILE.write_text(hash_pin(pin))
 
 
@@ -496,7 +498,15 @@ def verify_pin(pin):
     """Verify PIN against stored hash."""
     if not PIN_FILE.exists():
         return True
-    return PIN_FILE.read_text().strip() == hash_pin(pin)
+    stored = PIN_FILE.read_text().strip()
+    # Support new format "salt:hash" and legacy format (plain hash)
+    if ":" in stored and len(stored.split(":", 1)) == 2:
+        salt, expected_hash = stored.split(":", 1)
+        pin_hash = hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
+        return pin_hash == expected_hash
+    # Legacy: static salt
+    legacy_hash = hashlib.sha256(f"codegpt_v1_salt:{pin}".encode()).hexdigest()
+    return stored == legacy_hash
 
 
 def has_pin():
@@ -575,31 +585,33 @@ def audit_log(action, detail=""):
         pass
 
 
-def encrypt_text(text, key="codegpt_default_key"):
-    """Simple XOR encryption for local storage."""
-    key_bytes = hashlib.sha256(key.encode()).digest()
-    encrypted = bytearray()
-    for i, c in enumerate(text.encode("utf-8")):
-        encrypted.append(c ^ key_bytes[i % len(key_bytes)])
-    return base64.b64encode(bytes(encrypted)).decode("ascii")
-
-
-def decrypt_text(encrypted_text, key="codegpt_default_key"):
-    """Decrypt XOR encrypted text."""
-    key_bytes = hashlib.sha256(key.encode()).digest()
-    data = base64.b64decode(encrypted_text)
-    decrypted = bytearray()
-    for i, c in enumerate(data):
-        decrypted.append(c ^ key_bytes[i % len(key_bytes)])
-    return decrypted.decode("utf-8")
-
 
 def is_shell_safe(cmd_text):
     """Check if a shell command is safe to run."""
     cmd_lower = cmd_text.lower().strip()
+
+    # Blocklist check
     for blocked in SHELL_BLOCKLIST:
         if blocked in cmd_lower:
             return False, blocked
+
+    # Block shell injection patterns
+    injection_patterns = [
+        r'[;&|`]',      # Command chaining/injection
+        r'\$\(',        # Command substitution
+        r'>\s*/dev/',   # Device writes
+        r'\\x[0-9a-f]', # Hex escapes
+        r'\\u[0-9a-f]', # Unicode escapes
+        r'\brm\b.*-[rR]', # rm with recursive flag (any form)
+    ]
+    for pattern in injection_patterns:
+        if re.search(pattern, cmd_text):
+            return False, f"blocked pattern: {pattern}"
+
+    # Max command length
+    if len(cmd_text) > 500:
+        return False, "command too long (500 char limit)"
+
     return True, ""
 
 
@@ -1060,7 +1072,7 @@ def set_reminder(text):
     if not message:
         message = "Reminder!"
 
-    rid = threading.get_ident() + id(text)
+    rid = int(time.time() * 1000000) + id(text)
     timer = threading.Timer(seconds, fire_reminder, args=(rid, message, label))
     timer.daemon = True
     timer.start()
@@ -1103,8 +1115,11 @@ def save_conversation(messages, model):
     filename = f"{ts}_{name}.json"
 
     data = {"model": model, "messages": messages, "saved_at": datetime.now().isoformat()}
-    (CHATS_DIR / filename).write_text(json.dumps(data, indent=2))
-    print_sys(f"Saved: {filename}")
+    try:
+        (CHATS_DIR / filename).write_text(json.dumps(data, indent=2))
+        print_sys(f"Saved: {filename}")
+    except OSError as e:
+        print_err(f"Save failed: {e}")
 
 
 def load_conversation():
@@ -1984,11 +1999,11 @@ def run_shell(cmd_text):
         return
 
     # Safety check
-    dangerous = ["rm -rf", "del /f", "format", "mkfs", "dd if=", "shutdown", ":(){"]
-    for d in dangerous:
-        if d in cmd_text.lower():
-            print_err(f"Blocked: dangerous command detected ({d})")
-            return
+    safe, blocked = is_shell_safe(cmd_text)
+    if not safe:
+        print_err(f"Blocked: {blocked}")
+        audit_log("SHELL_BLOCKED", f"{blocked}: {cmd_text[:80]}")
+        return
 
     console.print(Panel(
         Text(f"$ {cmd_text}", style="bright_cyan"),
@@ -1997,10 +2012,19 @@ def run_shell(cmd_text):
     ))
 
     try:
-        result = subprocess.run(
-            cmd_text, shell=True, capture_output=True, text=True, timeout=30,
-            cwd=str(Path.home()),
-        )
+        # Use shlex.split for safer argument parsing on non-Windows
+        if os.name != "nt":
+            import shlex
+            args = shlex.split(cmd_text)
+            result = subprocess.run(
+                args, capture_output=True, text=True, timeout=30,
+                cwd=str(Path.home()),
+            )
+        else:
+            result = subprocess.run(
+                cmd_text, shell=True, capture_output=True, text=True, timeout=30,
+                cwd=str(Path.home()),
+            )
         output = ""
         if result.stdout:
             output += result.stdout
@@ -2039,8 +2063,8 @@ def github_command(sub, args=""):
         "issues": "gh issue list --limit 10",
         "prs": "gh pr list --limit 10",
         "status": "gh status",
-        "notifications": "gh api notifications --jq '.[].subject.title' 2>&1 | head -10",
-        "stars": "gh api user/starred --jq '.[].full_name' 2>&1 | head -10",
+        "notifications": "gh api notifications --jq \".[].subject.title\"",
+        "stars": "gh api user/starred --jq \".[].full_name\"",
         "profile": "gh api user --jq '{login, name, public_repos, followers}'",
         "gists": "gh gist list --limit 5",
     }
@@ -2052,6 +2076,10 @@ def github_command(sub, args=""):
                 commands[sub], shell=True, capture_output=True, text=True, timeout=15,
             )
             output = result.stdout.strip() or result.stderr.strip() or "(no output)"
+            # Truncate to 10 lines for long outputs
+            lines = output.split("\n")
+            if len(lines) > 10:
+                output = "\n".join(lines[:10]) + f"\n... ({len(lines) - 10} more)"
             console.print(Panel(
                 Text(output, style="white"),
                 title=f"[bold bright_cyan]GitHub: {sub}[/]",
@@ -2063,8 +2091,8 @@ def github_command(sub, args=""):
         # Create a new issue
         try:
             result = subprocess.run(
-                f'gh issue create --title "{args}" --body "Created from CodeGPT"',
-                shell=True, capture_output=True, text=True, timeout=15,
+                ["gh", "issue", "create", "--title", args, "--body", "Created from CodeGPT"],
+                capture_output=True, text=True, timeout=15,
             )
             console.print(Text(result.stdout.strip(), style="green"))
         except Exception as e:
@@ -2072,8 +2100,8 @@ def github_command(sub, args=""):
     elif sub == "search" and args:
         try:
             result = subprocess.run(
-                f'gh search repos "{args}" --limit 5',
-                shell=True, capture_output=True, text=True, timeout=15,
+                ["gh", "search", "repos", args, "--limit", "5"],
+                capture_output=True, text=True, timeout=15,
             )
             output = result.stdout.strip() or "No results."
             console.print(Panel(
@@ -2387,15 +2415,22 @@ def train_collect_rated():
         return
 
     data = load_training_data()
+    # Deduplicate: track existing prompt+response pairs
+    existing = {(ex.get("user", ""), ex.get("assistant", "")) for ex in data["examples"]}
+    added = 0
     for r in good_ratings:
-        data["examples"].append({
-            "user": r.get("prompt", ""),
-            "assistant": r.get("response", ""),
-            "collected": r.get("timestamp", ""),
-            "source": "rated",
-        })
+        key = (r.get("prompt", ""), r.get("response", ""))
+        if key not in existing:
+            data["examples"].append({
+                "user": r.get("prompt", ""),
+                "assistant": r.get("response", ""),
+                "collected": r.get("timestamp", ""),
+                "source": "rated",
+            })
+            existing.add(key)
+            added += 1
     save_training_data(data)
-    print_sys(f"Added {len(good_ratings)} rated examples. Total: {len(data['examples'])} examples.")
+    print_sys(f"Added {added} new rated examples ({len(good_ratings) - added} duplicates skipped). Total: {len(data['examples'])}.")
 
 
 def train_build(model_name, base_model, system_prompt=""):
@@ -2605,9 +2640,10 @@ def train_set_params():
 # --- Background Tool Launcher ---
 
 running_tools = {}  # {name: process}
+running_tools_lock = threading.Lock()
 
 
-def build_codegpt_context():
+def build_codegpt_context(messages=None):
     """Build a shared context file that all tools can read."""
     context_file = Path.home() / ".codegpt" / "context.json"
     project_dir = str(Path(__file__).parent)
@@ -2618,14 +2654,12 @@ def build_codegpt_context():
 
     # Get recent conversation for context
     recent_msgs = []
-    try:
+    if messages:
         for msg in messages[-10:]:
             recent_msgs.append({
                 "role": msg["role"],
                 "content": msg["content"][:500],
             })
-    except Exception:
-        pass
 
     # File listing with sizes
     files_info = []
@@ -2750,6 +2784,11 @@ def build_tool_env(tool_name):
     return env
 
 
+def _sanitize_shell_arg(s):
+    """Strip characters that could break out of shell quoting."""
+    return re.sub(r'[;&|`$"\'<>()!]', '', str(s))
+
+
 def launch_bg_tool(tool_name, tool_bin, args=None, cwd=None):
     """Launch a tool in a new terminal window, connected to CodeGPT."""
     project_dir = str(Path(__file__).parent)
@@ -2765,64 +2804,67 @@ def launch_bg_tool(tool_name, tool_bin, args=None, cwd=None):
     # Build env with CodeGPT vars
     tool_env = build_tool_env(tool_name)
 
-    # Build the command to run in new window
-    launch_parts = [tool_bin]
-    if args:
-        launch_parts.append(args)
-    cmd_str = " ".join(launch_parts)
+    # Sanitize all values that go into shell strings
+    safe_name = _sanitize_shell_arg(tool_name)
+    safe_dir = _sanitize_shell_arg(work_dir)
+    safe_bin = _sanitize_shell_arg(tool_bin)
+    safe_args = _sanitize_shell_arg(args) if args else ""
+
+    cmd_str = f"{safe_bin} {safe_args}".strip()
 
     if os.name == "nt":
         proc = subprocess.Popen(
-            f'start "CodeGPT > {tool_name}" cmd /k "cd /d {work_dir} && {cmd_str}"',
+            f'start "CodeGPT > {safe_name}" cmd /k "cd /d {safe_dir} && {cmd_str}"',
             shell=True,
             env=tool_env,
         )
     else:
         for term in ["gnome-terminal", "xterm", "konsole"]:
             if shutil.which(term):
-                proc = subprocess.Popen([term, "--", "bash", "-c", f"cd {work_dir} && {cmd_str}; exec bash"], env=tool_env)
+                proc = subprocess.Popen([term, "--", "bash", "-c", f"cd {safe_dir} && {cmd_str}; exec bash"], env=tool_env)
                 break
         else:
             proc = subprocess.Popen(cmd_str, shell=True, cwd=work_dir, env=tool_env)
 
-    running_tools[tool_name] = {
-        "proc": proc,
-        "started": datetime.now(),
-        "bin": tool_bin,
-        "cwd": work_dir,
-    }
+    with running_tools_lock:
+        running_tools[tool_name] = {
+            "proc": proc,
+            "started": datetime.now(),
+            "bin": tool_bin,
+            "cwd": work_dir,
+        }
     return proc
 
 
 def show_running_tools():
     """Show all running background tools."""
-    if not running_tools:
-        print_sys("No tools running in background.")
-        return
+    with running_tools_lock:
+        if not running_tools:
+            print_sys("No tools running in background.")
+            return
 
-    # Clean up finished ones
-    finished = []
-    for name, info in running_tools.items():
-        if info["proc"].poll() is not None:
-            finished.append(name)
-    for name in finished:
-        del running_tools[name]
+        # Clean up finished ones
+        finished = [name for name, info in running_tools.items()
+                    if info["proc"] is not None and info["proc"].poll() is not None]
+        for name in finished:
+            del running_tools[name]
 
-    if not running_tools:
-        print_sys("No tools running in background.")
-        return
+        if not running_tools:
+            print_sys("No tools running in background.")
+            return
 
-    table = Table(title="Running AI Tools", border_style="bright_green",
-                  title_style="bold green", show_header=True, header_style="bold")
-    table.add_column("Tool", style="bright_cyan", width=16)
-    table.add_column("PID", style="dim", width=8)
-    table.add_column("Uptime", style="white", width=10)
-    table.add_column("Dir", style="dim")
+        table = Table(title="Running AI Tools", border_style="bright_green",
+                      title_style="bold green", show_header=True, header_style="bold")
+        table.add_column("Tool", style="bright_cyan", width=16)
+        table.add_column("PID", style="dim", width=8)
+        table.add_column("Uptime", style="white", width=10)
+        table.add_column("Dir", style="dim")
 
-    for name, info in running_tools.items():
-        elapsed = int((datetime.now() - info["started"]).total_seconds())
-        uptime = f"{elapsed // 60}m {elapsed % 60}s"
-        table.add_row(name, str(info["proc"].pid), uptime, info["cwd"][:40])
+        for name, info in running_tools.items():
+            elapsed = int((datetime.now() - info["started"]).total_seconds())
+            uptime = f"{elapsed // 60}m {elapsed % 60}s"
+            pid = str(info["proc"].pid) if info["proc"] else "?"
+            table.add_row(name, pid, uptime, info["cwd"][:40])
 
     console.print(table)
     console.print()
@@ -2830,17 +2872,19 @@ def show_running_tools():
 
 def kill_all_tools():
     """Close all background tools."""
-    if not running_tools:
-        print_sys("No tools running.")
-        return
-    count = 0
-    for name, info in list(running_tools.items()):
-        try:
-            info["proc"].terminate()
-            count += 1
-        except Exception:
-            pass
-    running_tools.clear()
+    with running_tools_lock:
+        if not running_tools:
+            print_sys("No tools running.")
+            return
+        count = 0
+        for name, info in list(running_tools.items()):
+            try:
+                if info["proc"]:
+                    info["proc"].terminate()
+                count += 1
+            except Exception:
+                pass
+        running_tools.clear()
     print_sys(f"Closed {count} tools.")
 
 
@@ -2938,14 +2982,14 @@ def bus_unread(tool_name):
 
 def show_inbox():
     """Show messages for CodeGPT."""
+    unread_count = bus_unread("codegpt")
     msgs = bus_read("codegpt")
-    unread = [m for m in msgs if not m.get("read")]
 
     if not msgs:
         print_sys("Inbox empty. No messages from other tools.")
         return
 
-    table = Table(title=f"Inbox ({len(unread)} unread)", border_style="bright_cyan",
+    table = Table(title=f"Inbox ({unread_count} unread)", border_style="bright_cyan",
                   title_style="bold cyan", show_header=True, header_style="bold")
     table.add_column("#", style="cyan", width=3)
     table.add_column("From", style="bright_magenta", width=12)
@@ -3609,13 +3653,19 @@ def split_tools(tools, vertical=False):
 
     # First tool in the main pane
     first_cmd, first_dir = get_tool_cmd(tools[0])
-    wt_cmd = f'wt -w 0 nt --title "CodeGPT > {tools[0]}" -d "{first_dir}" cmd /k "{env_prefix}{first_cmd}"'
+    safe_first = _sanitize_shell_arg(tools[0])
+    safe_first_dir = _sanitize_shell_arg(first_dir)
+    safe_first_cmd = _sanitize_shell_arg(first_cmd)
+    wt_cmd = f'wt -w 0 nt --title "CodeGPT > {safe_first}" -d "{safe_first_dir}" cmd /k "{env_prefix}{safe_first_cmd}"'
 
     # Add remaining tools as split panes
     for tool in tools[1:]:
         tool_cmd, tool_dir = get_tool_cmd(tool)
         Path(tool_dir).mkdir(parents=True, exist_ok=True)
-        wt_cmd += f' ; sp {split_flag} --title "CodeGPT > {tool}" -d "{tool_dir}" cmd /k "{env_prefix}{tool_cmd}"'
+        safe_tool = _sanitize_shell_arg(tool)
+        safe_tool_dir = _sanitize_shell_arg(tool_dir)
+        safe_tool_cmd = _sanitize_shell_arg(tool_cmd)
+        wt_cmd += f' ; sp {split_flag} --title "CodeGPT > {safe_tool}" -d "{safe_tool_dir}" cmd /k "{env_prefix}{safe_tool_cmd}"'
 
     subprocess.Popen(wt_cmd, shell=True)
 
@@ -3669,7 +3719,7 @@ def grid_tools(tools):
     for t in tools[:4]:
         cmd, d = get_tool_cmd(t)
         Path(d).mkdir(parents=True, exist_ok=True)
-        cmds.append((t, cmd, d))
+        cmds.append((_sanitize_shell_arg(t), _sanitize_shell_arg(cmd), _sanitize_shell_arg(d)))
 
     # First pane (top-left)
     wt_cmd = f'wt -w 0 nt --title "CodeGPT > {cmds[0][0]}" -d "{cmds[0][2]}" cmd /k "{env_prefix}{cmds[0][1]}"'
@@ -4418,7 +4468,7 @@ def main():
                 continue
 
             elif cmd == "/compact":
-                if len(messages) < 4:
+                if len(messages) <= 4:
                     print_sys("Not enough messages to compact.")
                     continue
                 print_sys("Compacting conversation...")
@@ -4430,7 +4480,7 @@ def main():
                 response = stream_response(compact_msgs, system, model)
                 if response:
                     # Replace history with summary + last 2 exchanges
-                    keep = messages[-4:] if len(messages) >= 4 else messages
+                    keep = messages[-4:]
                     messages = [{"role": "assistant", "content": f"[Conversation summary]\n{response}"}] + keep
                     session_stats["messages"] = len(messages)
                     print_sys(f"Compacted: {len(messages)} messages remaining.")
@@ -5358,7 +5408,7 @@ def main():
                     is_coding_tool = tool_key in coding_tools
 
                     # Update shared context before any launch
-                    build_codegpt_context()
+                    build_codegpt_context(messages)
                     tool_env = build_tool_env(tool_key)
 
                     if is_coding_tool:
@@ -5519,7 +5569,7 @@ def main():
                         border_style="bright_cyan", padding=(1, 2), width=tw(),
                     ))
                     audit_log("CLAUDE_LAUNCH", f"cwd={project_dir}")
-                    build_codegpt_context()
+                    build_codegpt_context(messages)
                     claude_env = build_tool_env("claude")
 
                     if claude_args:
@@ -5922,8 +5972,6 @@ def main():
                         for x in range(21):
                             # Fixed patterns for QR corners
                             if (x < 7 and y < 7) or (x >= 14 and y < 7) or (x < 7 and y >= 14):
-                                border = (x in (0,6) or y in (0,6) or (2<=x<=4 and 2<=y<=4) or
-                                         (x in (0,6) and True) or (y in (0,6) and True))
                                 if x < 7 and y < 7:
                                     if x in (0,6) or y in (0,6):
                                         row += "██"
