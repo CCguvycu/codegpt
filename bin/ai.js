@@ -19,12 +19,8 @@ function findPython() {
 }
 
 const python = findPython();
-if (!python) {
-  console.error("Python not found. Install from https://python.org");
-  process.exit(1);
-}
 
-// Find chat.py — check npm package dir first, then common locations
+// Find chat.py
 const locations = [
   path.join(__dirname, "..", "chat.py"),
   path.join(process.env.HOME || process.env.USERPROFILE, "codegpt", "chat.py"),
@@ -39,17 +35,22 @@ for (const loc of locations) {
   }
 }
 
-if (!chatPy) {
-  console.error("CodeGPT not found. Run: codegpt-setup");
-  process.exit(1);
+// If Python + chat.py found, use full Python CLI
+if (python && chatPy) {
+  const args = [chatPy, ...process.argv.slice(2)];
+  const child = spawn(python, args, {
+    stdio: "inherit",
+    cwd: path.dirname(chatPy),
+    env: { ...process.env, PYTHONUTF8: "1" },
+  });
+  child.on("exit", (code) => process.exit(code || 0));
+} else {
+  // Fallback: Node.js chat client (no Python needed)
+  if (!python) {
+    console.log("  Python not found — using Node.js mode.");
+    console.log("  Install Python for the full 80+ command experience.\n");
+  } else {
+    console.log("  chat.py not found — using Node.js mode.\n");
+  }
+  require("./chat.js");
 }
-
-// Pass all args through to Python
-const args = [chatPy, ...process.argv.slice(2)];
-const child = spawn(python, args, {
-  stdio: "inherit",
-  cwd: path.dirname(chatPy),
-  env: { ...process.env, PYTHONUTF8: "1" },
-});
-
-child.on("exit", (code) => process.exit(code || 0));
