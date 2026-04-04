@@ -3907,6 +3907,118 @@ def get_input():
 def main():
     global last_ai_response, code_exec_count, OLLAMA_URL, sidebar_enabled
 
+    # CLI args mode: python chat.py --ask "question" or python chat.py --cmd "/tools"
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+
+        if arg == "--ask" and len(sys.argv) > 2:
+            question = " ".join(sys.argv[2:])
+            try:
+                resp = requests.post(
+                    OLLAMA_URL,
+                    json={"model": MODEL, "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": question},
+                    ], "stream": False},
+                    timeout=120,
+                )
+                print(resp.json().get("message", {}).get("content", ""))
+            except Exception as e:
+                print(f"Error: {e}", file=sys.stderr)
+            return
+
+        elif arg == "--agent" and len(sys.argv) > 3:
+            agent_name = sys.argv[2]
+            task = " ".join(sys.argv[3:])
+            if agent_name in AI_AGENTS:
+                result = run_agent(agent_name, task, MODEL)
+                if result:
+                    print(result)
+            else:
+                print(f"Unknown agent. Available: {', '.join(AI_AGENTS.keys())}")
+            return
+
+        elif arg == "--team" and len(sys.argv) > 3:
+            # Non-interactive: get one round from both AIs
+            name1, name2 = sys.argv[2], sys.argv[3]
+            topic = " ".join(sys.argv[4:]) if len(sys.argv) > 4 else "introduce yourself"
+            m1 = resolve_team_member(name1)
+            m2 = resolve_team_member(name2)
+            for member in [m1, m2]:
+                try:
+                    resp = requests.post(OLLAMA_URL, json={
+                        "model": member["model"] or MODEL,
+                        "messages": [
+                            {"role": "system", "content": member["system"]},
+                            {"role": "user", "content": topic},
+                        ], "stream": False,
+                    }, timeout=90)
+                    content = resp.json().get("message", {}).get("content", "")
+                    print(f"\n[{member['name']}]\n{content}")
+                except Exception as e:
+                    print(f"[{member['name']}] Error: {e}")
+            return
+
+        elif arg == "--tools":
+            installed = 0
+            for name, info in AI_TOOLS.items():
+                ok = shutil.which(info["bin"]) is not None
+                if ok:
+                    installed += 1
+                status = "+" if ok else "-"
+                print(f"  {status} /{name:<16} {info['name']}")
+            print(f"\n  {installed}/{len(AI_TOOLS)} installed")
+            return
+
+        elif arg == "--models":
+            try:
+                resp = requests.get(OLLAMA_URL.replace("/api/chat", "/api/tags"), timeout=3)
+                models = [m["name"] for m in resp.json().get("models", [])]
+                for m in models:
+                    print(f"  {m}")
+                print(f"\n  {len(models)} models")
+            except Exception:
+                print("  Ollama not reachable")
+            return
+
+        elif arg == "--status":
+            profile = load_profile()
+            mem_count = len(load_memories())
+            try:
+                resp = requests.get(OLLAMA_URL.replace("/api/chat", "/api/tags"), timeout=3)
+                model_count = len(resp.json().get("models", []))
+                ollama_status = f"running ({model_count} models)"
+            except Exception:
+                ollama_status = "offline"
+            tool_count = sum(1 for t in AI_TOOLS.values() if shutil.which(t["bin"]))
+
+            print(f"  CodeGPT v1.0.0")
+            print(f"  User:     {profile.get('name', 'not set')}")
+            print(f"  Model:    {profile.get('model', MODEL)}")
+            print(f"  Persona:  {profile.get('persona', 'default')}")
+            print(f"  Ollama:   {ollama_status}")
+            print(f"  Tools:    {tool_count}/{len(AI_TOOLS)} installed")
+            print(f"  Memories: {mem_count}")
+            print(f"  Sessions: {profile.get('total_sessions', 0)}")
+            return
+
+        elif arg in ("--help", "-h"):
+            print("CodeGPT — Local AI Assistant Hub")
+            print("")
+            print("  ai                    Interactive CLI")
+            print("  ai --ask <question>   Quick one-shot question")
+            print("  ai --agent <name> <task>  Run an agent")
+            print("  ai --team <a1> <a2> <topic>  Two AIs respond")
+            print("  ai --tools            List all AI tools")
+            print("  ai --models           List Ollama models")
+            print("  ai --status           Show status")
+            print("  ai --version          Show version")
+            print("  ai doctor             System diagnostics")
+            print("  ai update             Self-update")
+            print("")
+            print("  echo 'question' | ai  Pipe input")
+            return
+
     # Pipe support: echo "question" | ai
     if not sys.stdin.isatty():
         piped = sys.stdin.read().strip()
