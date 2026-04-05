@@ -1170,108 +1170,45 @@ def print_header(model):
     compact = is_compact()
     console.print()
 
-    # Responsive logo
-    logo = LOGO_COMPACT if compact else LOGO_FULL
-    console.print(Panel(
-        Text.from_markup(logo),
-        border_style="bright_cyan",
-        padding=(0 if compact else 1, 1 if compact else 2),
-        width=w,
-    ))
-
-    # Status bar — compact version for small screens
-    now = datetime.now().strftime("%H:%M")
-    elapsed = int(time.time() - session_stats["start"])
-    uptime = f"{elapsed // 60}m"
-    tok = session_stats["tokens_out"]
-
-    bar = Text()
     if compact:
-        bar.append(f" {model}", style="bright_cyan")
-        bar.append(f" {session_stats['messages']}msg", style="dim")
-        bar.append(f" {now}", style="dim")
+        console.print(Text.from_markup(f"  [bold bright_cyan]CodeGPT[/] [dim]· {model}[/]"))
+        console.print(Rule(style="dim", characters="─"))
     else:
-        bar.append(f"  {model}", style="bright_cyan")
-        bar.append("  |  ", style="dim")
-        bar.append(f"{session_stats['messages']} msgs", style="dim")
-        bar.append("  |  ", style="dim")
-        bar.append(f"{tok} tokens", style="dim")
-        bar.append("  |  ", style="dim")
-        bar.append(f"{uptime}", style="dim")
-        bar.append("  |  ", style="dim")
-        bar.append(now, style="dim")
-
-    console.print(Panel(bar, border_style="dim", padding=0, width=w))
+        console.print(Text.from_markup(LOGO_FULL))
+        console.print()
+        now = datetime.now().strftime("%H:%M")
+        elapsed = int(time.time() - session_stats["start"])
+        console.print(Text.from_markup(
+            f"  [bright_cyan]{model}[/]"
+            f"  [dim]·[/]  [dim]{session_stats['messages']} msgs[/]"
+            f"  [dim]·[/]  [dim]{session_stats['tokens_out']} tok[/]"
+            f"  [dim]·[/]  [dim]{elapsed // 60}m[/]"
+            f"  [dim]·[/]  [dim]{now}[/]"
+        ))
+        console.print(Rule(style="dim", characters="─"))
     console.print()
 
 
 def print_welcome(model, available_models):
     w = tw()
     import random
-
-    # Greeting
-    hour = datetime.now().hour
-    if hour < 12:
-        greeting = "Good morning"
-    elif hour < 18:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
-
     compact = is_compact()
 
-    console.print(Align.center(Text(f"\n{greeting}.\n", style="bold white")), width=w)
+    # Clean welcome — no heavy panels
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+    console.print(Text(f"  {greeting}. How can I help?", style="bold white"))
+    console.print()
 
-    # Connection status bar
-    is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
-    server_type = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0]
-    model_count = len(available_models)
-    mem_count = len(load_memories())
-    profile = load_profile()
-    streak = profile.get("total_sessions", 0)
+    # Suggestions — clean list
+    items = SUGGESTIONS[:3] if compact else SUGGESTIONS[:5]
+    for i, s in enumerate(items, 1):
+        console.print(Text.from_markup(f"  [bright_cyan]{i}.[/] [dim]{s}[/]"))
+    console.print()
 
-    status = Text()
-    if compact:
-        status.append(f" {model}", style="bold bright_cyan")
-        status.append(f" {server_type}", style="green" if model_count > 0 else "red")
-        status.append(f" {model_count}m", style="dim")
-    else:
-        status.append("  ◈ ", style="bright_cyan")
-        status.append(f"{model}", style="bold bright_cyan")
-        status.append("  │  ", style="dim")
-        status.append(f"◇ {server_type}", style="green" if model_count > 0 else "red")
-        status.append("  │  ", style="dim")
-        status.append(f"△ {model_count} models", style="dim")
-        status.append("  │  ", style="dim")
-        status.append(f"◇ {mem_count} memories", style="dim")
-        if streak > 1:
-            status.append("  │  ", style="dim")
-            status.append(f"▸ {streak} sessions", style="dim")
-    console.print(Panel(status, border_style="bright_black", padding=0, width=w))
-
-    # Suggestion chips — fewer on compact
-    if compact:
-        console.print(Panel(
-            _build_suggestions(max_items=3),
-            title="[dim]Try[/]",
-            title_align="left",
-            border_style="bright_black",
-            padding=(0, 1),
-            width=w,
-        ))
-    else:
-        console.print(Panel(
-            _build_suggestions(),
-            title="[dim]Suggestions (type a number)[/]",
-            title_align="left",
-            border_style="bright_black",
-            padding=(1, 2),
-            width=w,
-        ))
-
-    # Tip of the day
+    # Tip
     tip = random.choice(TIPS)
-    console.print(Text(f"  Tip: {tip}", style="dim italic"))
+    console.print(Text(f"  tip: {tip}", style="dim italic"))
     console.print()
 
 
@@ -1289,46 +1226,40 @@ def _build_suggestions(max_items=None):
 
 
 def print_user_msg(text):
-    pad = (0, 1) if is_compact() else (0, 2)
-    console.print(Panel(
-        Text(text, style="white"),
-        title="[bold bright_cyan]You[/]",
-        title_align="left",
-        border_style="bright_cyan",
-        padding=pad,
-        width=tw(),
-    ))
+    # Clean inline style like Claude Code — no heavy panels
+    console.print()
+    console.print(Text(f"  {text}", style="bold white"))
+    console.print()
 
 
 def print_ai_msg(text, stats=""):
-    pad = (0, 1) if is_compact() else (0, 2)
+    # Minimal border, clean markdown — like Claude Code output
+    w = tw()
     compact = is_compact()
-    panel = Panel(
-        Markdown(text),
-        title="[bold bright_green]AI[/]",
-        title_align="left",
-        border_style="bright_green",
-        subtitle=stats if not compact else "",
-        subtitle_align="right",
-        padding=pad,
-        width=tw(),
-    )
-    print_with_sidebar(panel)
+
+    console.print(Rule(style="bright_green", characters="─"))
+    console.print()
+    console.print(Markdown(text), width=w - 4)
+    if stats and not compact:
+        console.print(Text(f"  {stats}", style="dim"))
+    console.print()
 
 
 def print_sys(text):
-    if is_compact():
-        console.print(Text(f"  {text}", style="dim italic"))
-    else:
-        console.print(Panel(
-            Text(text, style="dim italic"),
-            border_style="bright_black",
-            padding=(0, 1),
-            width=tw(),
-        ))
+    # Simple dim text — no panels, no borders
+    console.print(Text(f"  {text}", style="dim"))
 
 
 def print_err(text):
+    console.print(Text(f"  ✗ {text}", style="bold red"))
+
+
+def print_success(text):
+    console.print(Text(f"  ✓ {text}", style="bold green"))
+
+
+def _print_err_panel(text):
+    """Legacy panel error for important errors."""
     console.print(Panel(
         Text(text, style="bold red"),
         title="[bold red]Error[/]",
@@ -4241,21 +4172,21 @@ def stream_response(messages, system, model):
 # --- Input ---
 
 def _bottom_toolbar():
-    """Live stats in the bottom toolbar."""
+    """Clean status bar like Claude Code."""
     elapsed = int(time.time() - session_stats["start"])
     mins = elapsed // 60
     msgs = session_stats["messages"]
     tok = session_stats["tokens_out"]
     if is_compact():
-        return [("class:bottom-toolbar", f" {msgs}msg {tok}tok {mins}m │ / cmds ")]
+        return [("class:bottom-toolbar", f" {msgs} msgs · {tok} tok · {mins}m ")]
     return [("class:bottom-toolbar",
-             f" {msgs} msgs │ {tok} tok │ {mins}m │ / for commands │ Ctrl+C to exit ")]
+             f" {msgs} msgs · {tok} tokens · {mins}m · type / for commands ")]
 
 
 def get_input():
     try:
         return prompt(
-            [("class:prompt", " > ")],
+            [("class:prompt", " ❯ ")],
             style=input_style,
             history=input_history,
             completer=cmd_completer,
