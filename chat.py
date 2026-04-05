@@ -149,7 +149,9 @@ AI_TOOLS = {
         "name": "Ollama",
         "desc": "Run local LLMs (already installed)",
         "bin": "ollama",
-        "install": ["winget", "install", "Ollama.Ollama"],
+        "install": ["pip", "install", "ollama"],
+        "install_termux": ["pkg", "install", "-y", "ollama"],
+        "install_win": ["winget", "install", "Ollama.Ollama"],
         "default_args": ["run", "llama3.2"],
         "needs_key": "None — runs locally",
     },
@@ -157,7 +159,9 @@ AI_TOOLS = {
         "name": "jq",
         "desc": "JSON processor for the command line",
         "bin": "jq",
-        "install": ["winget", "install", "jqlang.jq"],
+        "install": ["pip", "install", "jq"],
+        "install_termux": ["pkg", "install", "-y", "jq"],
+        "install_win": ["winget", "install", "jqlang.jq"],
         "default_args": [],
         "needs_key": "None",
     },
@@ -5613,7 +5617,16 @@ def main():
                     audit_log(f"TOOL_EXIT", tool_key)
                 else:
                     print_sys(f"Installing {tool['name']}...")
-                    install_cmd = tool["install"]
+
+                    # Pick platform-specific install command
+                    is_termux = os.path.exists("/data/data/com.termux")
+                    if is_termux and "install_termux" in tool:
+                        install_cmd = list(tool["install_termux"])
+                    elif os.name == "nt" and "install_win" in tool:
+                        install_cmd = list(tool["install_win"])
+                    else:
+                        install_cmd = list(tool["install"])
+
                     is_npm = install_cmd[0] in ("npm", "npm.cmd")
 
                     if is_npm and os.name == "nt":
