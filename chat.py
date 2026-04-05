@@ -4186,39 +4186,7 @@ def main():
                 available_models = models
                 break
 
-    # Try 4: Ask user (but don't quit if they skip)
-    if not available_models:
-        clear_screen()
-        console.print(Panel(
-            Text.from_markup(
-                "[bold yellow]No AI backend found.[/]\n\n"
-                "  [bold]Options:[/]\n"
-                "  1. Enter your PC's Ollama URL below\n"
-                "  2. Press Enter to start offline (commands still work)\n"
-                "  3. Install Ollama: [bright_cyan]https://ollama.com[/]\n"
-            ),
-            title="[bold yellow]Setup[/]",
-            border_style="yellow", padding=(1, 2),
-        ))
-        try:
-            remote = prompt([("class:prompt", " Ollama URL (or Enter to skip) > ")], style=input_style).strip()
-            if remote:
-                if not remote.startswith("http"):
-                    remote = "http://" + remote
-                OLLAMA_URL = remote if "/api/chat" in remote else f"{remote.rstrip('/')}/api/chat"
-                available_models = try_connect(OLLAMA_URL)
-                if available_models:
-                    console.print(Panel(Text(f"Connected: {OLLAMA_URL}", style="green"), border_style="green"))
-                    # Save for next time
-                    config_file = Path.home() / ".codegpt" / "ollama_url"
-                    config_file.parent.mkdir(parents=True, exist_ok=True)
-                    config_file.write_text(OLLAMA_URL)
-                else:
-                    print_sys("Cannot reach that URL. Starting offline.")
-        except (KeyboardInterrupt, EOFError):
-            pass
-
-    # Try 5: Load saved URL from last session
+    # Try 4: Load saved URL from last session
     if not available_models:
         saved_url = Path.home() / ".codegpt" / "ollama_url"
         if saved_url.exists():
@@ -4232,6 +4200,9 @@ def main():
     # Always continue — offline mode if no backend
     if not available_models:
         available_models = [MODEL]  # Use default model name as placeholder
+        offline_mode = True
+    else:
+        offline_mode = False
 
     # Load profile
     profile = load_profile()
@@ -4250,10 +4221,42 @@ def main():
     system = PERSONAS.get(persona_name, SYSTEM_PROMPT)
 
     print_header(model)
-    if not first_time:
+
+    # Welcome popup
+    if first_time:
+        pass  # Setup wizard already shown
+    elif offline_mode:
+        w = tw()
+        compact = is_compact()
+        name = profile.get("name", "User")
+
+        if compact:
+            console.print(Panel(
+                Text.from_markup(
+                    f"[bold]Hey {name}![/]\n\n"
+                    f"  [dim]Offline mode[/]\n"
+                    f"  [dim]Use /connect IP[/]\n"
+                    f"  [dim]to link your PC[/]\n"
+                ),
+                title="[bold bright_cyan]Welcome[/]",
+                border_style="bright_cyan", padding=(0, 1), width=w,
+            ))
+        else:
+            console.print(Panel(
+                Text.from_markup(
+                    f"[bold]Welcome back, {name}![/]\n\n"
+                    f"  Status:  [yellow]offline[/] — no Ollama found\n"
+                    f"  Fix:     [bright_cyan]/connect YOUR_PC_IP[/]\n\n"
+                    f"  [dim]All commands work. AI responses need a connection.[/]"
+                ),
+                title="[bold bright_cyan]Welcome[/]",
+                border_style="bright_cyan", padding=(1, 2), width=w,
+            ))
+    else:
         name = profile.get("name", "")
         if name:
             console.print(Align.center(Text(f"Welcome back, {name}.\n", style="bold white")), width=tw())
+
     print_welcome(model, available_models)
 
     while True:
