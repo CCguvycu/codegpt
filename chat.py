@@ -702,15 +702,40 @@ def show_profile():
 
 
 def setup_profile():
-    """First-time profile setup wizard."""
+    """First-time welcome & profile setup wizard."""
     w = tw()
-    console.print(Panel(
-        Text("Welcome to CodeGPT! Let's set up your profile.", style="bold"),
-        title="[bold bright_cyan]Setup[/]",
-        border_style="bright_cyan",
-        padding=(1, 2),
-        width=w,
-    ))
+    compact = is_compact()
+
+    # Big welcome popup
+    if compact:
+        console.print(Panel(
+            Text.from_markup(
+                "[bold bright_cyan]Welcome to CodeGPT![/]\n\n"
+                "  Your local AI assistant.\n"
+                "  80+ commands. 8 agents.\n"
+                "  29 tools. No cloud needed.\n\n"
+                "  Powered by [bold]Ollama[/].\n"
+            ),
+            border_style="bright_cyan", padding=(0, 1), width=w,
+        ))
+    else:
+        console.print(Panel(
+            Text.from_markup(
+                "[bold bright_cyan]Welcome to CodeGPT![/]\n\n"
+                "  Your local AI assistant hub.\n\n"
+                "  [bright_cyan]80+[/] slash commands\n"
+                "  [bright_cyan]8[/]   AI agents (coder, debugger, reviewer...)\n"
+                "  [bright_cyan]29[/]  AI tool integrations (Claude, Codex, Gemini...)\n"
+                "  [bright_cyan]6[/]   personas (hacker, teacher, architect...)\n"
+                "  [bright_cyan]15[/]  prompt templates\n\n"
+                "  No cloud. No API keys. Powered by [bold]Ollama[/].\n\n"
+                "  [dim]Let's set up your profile — takes 10 seconds.[/]"
+            ),
+            title="[bold bright_cyan]CodeGPT v1.0[/]",
+            border_style="bright_cyan", padding=(1, 2), width=w,
+        ))
+
+    console.print()
 
     try:
         name = prompt([("class:prompt", " Your name > ")], style=input_style).strip()
@@ -726,12 +751,38 @@ def setup_profile():
     profile["total_sessions"] = 1
     save_profile(profile)
 
-    console.print(Panel(
-        Text(f"Welcome, {profile['name']}!", style="bold bright_cyan"),
-        border_style="bright_cyan",
-        padding=(0, 2),
-        width=w,
-    ))
+    # Post-setup quick start guide
+    if compact:
+        console.print(Panel(
+            Text.from_markup(
+                f"[bold green]Hey {profile['name']}![/]\n\n"
+                "  [dim]Quick start:[/]\n"
+                "  Just type to chat\n"
+                "  [bright_cyan]/[/] see all commands\n"
+                "  [bright_cyan]/help[/] full guide\n"
+                "  [bright_cyan]/connect IP[/] link PC\n"
+            ),
+            title="[bold green]Ready[/]",
+            border_style="green", padding=(0, 1), width=w,
+        ))
+    else:
+        console.print(Panel(
+            Text.from_markup(
+                f"[bold green]Welcome, {profile['name']}![/]\n\n"
+                "  [bold]Quick start:[/]\n"
+                "  [bright_cyan]Just type[/]        Chat with the AI\n"
+                "  [bright_cyan]/[/]                See all commands\n"
+                "  [bright_cyan]/help[/]            Full command list\n"
+                "  [bright_cyan]/persona hacker[/]  Change personality\n"
+                "  [bright_cyan]/agent coder[/]     Use a specialist agent\n"
+                "  [bright_cyan]/all question[/]    Ask all 8 agents at once\n"
+                "  [bright_cyan]/tools[/]           Browse 29 AI tools\n"
+                "  [bright_cyan]/connect IP[/]      Connect to remote Ollama\n\n"
+                "  [dim]Tip: Press / to see autocomplete suggestions.[/]"
+            ),
+            title="[bold green]You're all set[/]",
+            border_style="green", padding=(1, 2), width=w,
+        ))
     console.print()
 
 
