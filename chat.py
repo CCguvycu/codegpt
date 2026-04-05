@@ -1236,56 +1236,67 @@ def print_header(model):
         mem_count = len(load_memories())
 
         console.print()
-        import random
-        spider_pos = random.choice(["top", "right", "bottom", "left"])
-
-        # Bigger spider
-        sp = {
-            "top":    "  /╲(o.o)╱\\",
-            "right":  "~~~(o.o)>",
-            "bottom": "  \\╱(o.o)╲/",
-            "left":   "<(o.o)~~~",
-        }
-        spider = sp[spider_pos]
 
         # Banner parts
-        R = "bold red"        # Red border
-        B = "bold bright_blue" # Blue accents
+        R = "bold red"
+        B = "bold bright_blue"
         D = "dim"
 
-        top_border    = f"[{R}]  ╔════════════════════════════════════════════════════╗[/]"
-        bot_border    = f"[{R}]  ╚════════════════════════════════════════════════════╝[/]"
-        empty_line    = f"[{R}]  ║[/]                                                    [{R}]║[/]"
-        title_line    = f"[{R}]  ║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]"
-        subtitle_line = f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/]"
-        stats_line    = f"[{R}]  ║[/]          [{B}]123[/] [{D}]commands ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]       [{R}]║[/]"
+        def build_banner(pos):
+            """Build banner with spider at given position (0-7 around the border)."""
+            sp_faces = ["  /╲(o.o)╱\\", "  /╲(o.o)╱\\", "~~~(o.o)>", "~~~(o.o)>",
+                        "  \\╱(o.o)╲/", "  \\╱(o.o)╲/", "<(o.o)~~~", "<(o.o)~~~"]
+            spider = sp_faces[pos % 8]
 
-        if spider_pos == "top":
-            console.print(Text.from_markup(
-                f"[{D}]               {spider}[/]\n"
-                f"[{D}]                  ||[/]\n"
-                f"[{D}]                  ||[/]\n"
-                f"{top_border}\n{empty_line}\n{title_line}\n{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}"
-            ))
-        elif spider_pos == "right":
-            console.print(Text.from_markup(
-                f"{top_border}\n{empty_line}\n{title_line}\n"
-                f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/][{D}]~~~{spider}[/]\n"
-                f"{stats_line}\n{empty_line}\n{bot_border}"
-            ))
-        elif spider_pos == "bottom":
-            console.print(Text.from_markup(
-                f"{top_border}\n{empty_line}\n{title_line}\n{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}\n"
-                f"[{D}]                       ||[/]\n"
-                f"[{D}]                       ||[/]\n"
-                f"[{D}]                    {spider}[/]"
-            ))
-        else:  # left
-            console.print(Text.from_markup(
-                f"{top_border}\n{empty_line}\n"
-                f"[{D}]{spider}~~~[/][{R}]║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]\n"
-                f"{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}"
-            ))
+            top_b = f"[{R}]  ╔════════════════════════════════════════════════════╗[/]"
+            bot_b = f"[{R}]  ╚════════════════════════════════════════════════════╝[/]"
+            empty = f"[{R}]  ║[/]                                                    [{R}]║[/]"
+            title = f"[{R}]  ║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]"
+            sub   = f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/]"
+            stats = f"[{R}]  ║[/]          [{B}]123[/] [{D}]commands ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]       [{R}]║[/]"
+
+            lines = []
+            p = pos % 8
+
+            if p in (0, 1):  # top
+                lines.append(f"[{D}]               {spider}[/]")
+                lines.append(f"[{D}]                  ||[/]")
+                lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
+            elif p in (2, 3):  # right
+                lines.append(top_b)
+                lines.append(empty)
+                lines.append(title)
+                lines.append(f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/][{D}]~~{spider}[/]")
+                lines.extend([stats, empty, bot_b])
+            elif p in (4, 5):  # bottom
+                lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
+                lines.append(f"[{D}]                       ||[/]")
+                lines.append(f"[{D}]                    {spider}[/]")
+            else:  # left (6, 7)
+                lines.append(top_b)
+                lines.append(empty)
+                lines.append(f"[{D}]{spider}~~[/][{R}]║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]")
+                lines.extend([sub, stats, empty, bot_b])
+
+            return "\n".join(lines)
+
+        # Animate spider crawling around the banner
+        try:
+            with Live(
+                Text.from_markup(build_banner(0)),
+                console=console, refresh_per_second=6, transient=True,
+            ) as live:
+                for frame in range(16):  # 2 full laps
+                    live.update(Text.from_markup(build_banner(frame)))
+                    time.sleep(0.2)
+
+            # Final position — static
+            import random
+            final = random.randint(0, 7)
+            console.print(Text.from_markup(build_banner(final)))
+        except Exception:
+            # Fallback if Live doesn't work
+            console.print(Text.from_markup(build_banner(0)))
         console.print()
         console.print(Text.from_markup(
             f"  [dim]model[/]    [bright_blue]{model}[/]\n"
