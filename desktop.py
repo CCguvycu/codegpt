@@ -575,7 +575,7 @@ pre:hover .copy-btn { opacity: 1; }
             <div class="feat"><span class="num">26</span> <span>tools</span> <span class="label">Claude, Codex, Gemini...</span></div>
             <div class="feat"><span class="num">6</span> <span>personas</span> <span class="label">hacker, teacher, minimal...</span></div>
         </div>
-        <button class="start-btn" onclick="closeWelcome()">Start Chatting</button>
+        <button class="start-btn" id="startBtn">Start Chatting</button>
         <div class="tip">No cloud &middot; No API keys &middot; Runs locally</div>
     </div>
 </div>
@@ -594,6 +594,23 @@ function closeWelcome() {
 if (localStorage.getItem('codegpt_welcomed')) {
     const m = document.getElementById('welcomeModal');
     if (m) m.remove();
+} else {
+    // Also allow clicking anywhere on overlay or pressing Enter/Escape
+    document.addEventListener('DOMContentLoaded', function() {
+        const btn = document.getElementById('startBtn');
+        if (btn) btn.addEventListener('click', closeWelcome);
+        const overlay = document.getElementById('welcomeModal');
+        if (overlay) {
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeWelcome();
+            });
+        }
+        document.addEventListener('keydown', function(e) {
+            if ((e.key === 'Enter' || e.key === 'Escape') && document.getElementById('welcomeModal')) {
+                closeWelcome();
+            }
+        }, {once: true});
+    });
 }
 
 async function init() {
