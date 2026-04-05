@@ -5804,10 +5804,6 @@ def main():
                         print_sys("Use a desktop/PC for this tool.")
                         continue
 
-                    if not ask_permission("tool_install", f"Install {tool['name']} via {' '.join(install_cmd[:3])}"):
-                        continue
-                    print_sys(f"Installing {tool['name']}...")
-
                     # Pick platform-specific install command
                     if is_termux and "install_termux" in tool:
                         install_cmd = list(tool["install_termux"])
@@ -5815,6 +5811,10 @@ def main():
                         install_cmd = list(tool["install_win"])
                     else:
                         install_cmd = list(tool["install"])
+
+                    if not ask_permission("tool_install", f"Install {tool['name']} via {' '.join(install_cmd[:3])}"):
+                        continue
+                    print_sys(f"Installing {tool['name']}...")
 
                     is_npm = install_cmd[0] in ("npm", "npm.cmd")
 
