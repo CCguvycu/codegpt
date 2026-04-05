@@ -3913,7 +3913,7 @@ def team_chat(name1, name2, default_model, system):
 
 # --- Chat Room ---
 
-def chat_room(member_names, default_model, system, user_joins=True):
+def chat_room(member_names, default_model, system, user_joins=True, topic=""):
     """Multi-AI chat room. User can join or spectate."""
     members = [resolve_team_member(n) for n in member_names]
 
@@ -3999,7 +3999,8 @@ def chat_room(member_names, default_model, system, user_joins=True):
         # Spectate mode — AIs chat with each other, user watches
         try:
             # Get initial topic from last arg or default
-            topic = "Introduce yourselves and start a technical discussion."
+            if not topic:
+                topic = "Introduce yourselves and start a technical discussion."
             if history:
                 topic = history[-1]["content"]
 
@@ -4253,7 +4254,7 @@ def delete_skill(name):
 
 # --- Browser ---
 
-def browse_url(url):
+def browse_url(url, model=None):
     """Fetch a URL, extract text, and summarize it."""
     if not url.startswith("http"):
         url = "https://" + url
@@ -4282,7 +4283,7 @@ def browse_url(url):
         # Ask AI to summarize
         try:
             ai_resp = requests.post(OLLAMA_URL, json={
-                "model": MODEL,
+                "model": model or MODEL,
                 "messages": [
                     {"role": "system", "content": "Summarize this web page content in 3-5 bullet points. Be concise."},
                     {"role": "user", "content": f"URL: {url}\n\nContent:\n{text}"},
@@ -4306,6 +4307,7 @@ def browse_url(url):
 # --- Cron / Scheduled Tasks ---
 
 active_crons = []
+cron_command_queue = []  # Thread-safe command queue for cron execution
 
 
 def add_cron(interval_str, command):
@@ -4331,10 +4333,10 @@ def add_cron(interval_str, command):
             # Check if still active
             if cron_entry not in active_crons:
                 break
-            print_sys(f"[cron] Running: {command}")
-            # Execute as if user typed it
             cron_entry["last_run"] = datetime.now().isoformat()
             cron_entry["runs"] += 1
+            # Queue the command for main loop to execute
+            cron_command_queue.append(command)
 
     cron_entry = {
         "command": command,
@@ -4614,7 +4616,7 @@ def get_input():
 # --- Main ---
 
 def main():
-    global last_ai_response, code_exec_count, OLLAMA_URL, sidebar_enabled
+    global last_ai_response, code_exec_count, OLLAMA_URL, sidebar_enabled, think_mode, temperature
 
     # CLI args mode: python chat.py --ask "question" or python chat.py --cmd "/tools"
     if len(sys.argv) > 1:
@@ -4886,6 +4888,11 @@ def main():
                 audit_log("LOCKED_OUT")
                 break
 
+        # Drain cron command queue
+        while cron_command_queue:
+            cron_cmd = cron_command_queue.pop(0)
+            print_sys(f"[cron] {cron_cmd}")
+
         user_input = get_input()
         if user_input is None:
             cancel_all_reminders()
@@ -4952,10 +4959,10 @@ def main():
                 continue
 
             elif cmd == "/save":
-                if messages and ask_permission("save_chat", "Save conversation"):
-                    save_conversation(messages, model)
-                else:
+                if not messages:
                     print_sys("Nothing to save.")
+                elif ask_permission("save_chat", "Save conversation"):
+                    save_conversation(messages, model)
                 continue
 
             elif cmd == "/load":
@@ -5441,10 +5448,10 @@ def main():
                 elif sub == "clear":
                     mem_clear()
                 elif sub == "inject":
-                    # Inject memories into current conversation as context
+                    # Inject memories as a user-role context message (not system — avoids corrupting conversation)
                     mem_context = get_memory_context()
                     if mem_context:
-                        messages.append({"role": "system", "content": mem_context})
+                        messages.append({"role": "user", "content": f"[Memory context for reference]:\n{mem_context}"})
                         print_sys("Memories injected into context.")
                     else:
                         print_sys("No memories to inject.")
@@ -5857,8 +5864,7 @@ def main():
 
                     if len(names) >= 2:
                         # Inject topic
-                        history_init = [{"speaker": "moderator", "content": topic}]
-                        h = chat_room(names, model, system, user_joins=False)
+                        h = chat_room(names, model, system, user_joins=False, topic=topic)
                     else:
                         print_sys("Need at least 2 AIs. Example: /spectate coder reviewer discuss Python")
                 else:
@@ -6189,7 +6195,7 @@ def main():
                         launch_cmd = [tool_bin] + tool.get("default_args", [])
                         if tool_args:
                             launch_cmd.append(tool_args)
-                        subprocess.run(launch_cmd, shell=True, cwd=project_dir, env=tool_env)
+                        subprocess.run(" ".join(launch_cmd), shell=True, cwd=project_dir, env=tool_env)
                     else:
                         tool_sandbox = Path.home() / ".codegpt" / "sandbox" / tool_key
                         tool_sandbox.mkdir(parents=True, exist_ok=True)
@@ -6226,7 +6232,7 @@ def main():
                         launch_cmd = [tool_bin] + tool.get("default_args", [])
                         if tool_args:
                             launch_cmd.append(tool_args)
-                        subprocess.run(launch_cmd, shell=True, cwd=str(tool_sandbox), env=tool_env)
+                        subprocess.run(" ".join(launch_cmd), shell=True, cwd=str(tool_sandbox), env=tool_env)
 
                     print_sys("Back to CodeGPT.")
                     audit_log(f"TOOL_EXIT", tool_key)
@@ -6343,7 +6349,7 @@ def main():
                             print_sys(f"Installed in {elapsed:.1f}s. Launching...")
                             audit_log(f"TOOL_INSTALL", tool_key)
                             launch_cmd = [found_bin] + tool.get("default_args", [])
-                            subprocess.run(launch_cmd, shell=True)
+                            subprocess.run(" ".join(launch_cmd), shell=True)
                             print_sys("Back to CodeGPT.")
                         elif tool_bin in pip_module_map:
                             # Try python -m fallback
@@ -6906,7 +6912,7 @@ def main():
             elif cmd == "/browse":
                 url = user_input[len("/browse "):].strip()
                 if url and ask_permission("open_url", f"Fetch {url}"):
-                    content = browse_url(url)
+                    content = browse_url(url, model=model)
                     if content:
                         messages.append({"role": "user", "content": f"[browsed: {url}]"})
                         messages.append({"role": "assistant", "content": content[:500]})
@@ -7019,7 +7025,7 @@ def main():
                         f"  Log entries    [bright_cyan]{audit_count}[/]\n"
                         f"  Log file       [dim]{AUDIT_FILE}[/]\n\n"
                         f"[bold]Storage[/]\n"
-                        f"  Encrypted      [yellow]local XOR[/]\n"
+                        f"  PIN hash       [green]SHA-256[/]\n"
                         f"  Location       [dim]{SECURITY_DIR}[/]\n"
                     ),
                     border_style="bright_cyan",
