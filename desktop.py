@@ -565,43 +565,36 @@ pre:hover .copy-btn { opacity: 1; }
     </div>
 </div>
 
-<div class="modal-overlay" id="welcomeModal">
-    <div class="modal">
-        <h2><span class="code">Code</span><span class="gpt">GPT</span> Desktop</h2>
-        <div class="ver">v2.0 &middot; Local AI &middot; Powered by Ollama</div>
-        <div class="features">
-            <div class="feat"><span class="num">123</span> <span>commands</span> <span class="label">type / to see all</span></div>
-            <div class="feat"><span class="num">8</span> <span>AI agents</span> <span class="label">coder, reviewer, architect...</span></div>
-            <div class="feat"><span class="num">26</span> <span>tools</span> <span class="label">Claude, Codex, Gemini...</span></div>
-            <div class="feat"><span class="num">6</span> <span>personas</span> <span class="label">hacker, teacher, minimal...</span></div>
+<div id="welcomeModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center">
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:16px;padding:32px 40px;max-width:480px;width:90%;text-align:center">
+        <h2 style="font-size:22px;margin-bottom:4px"><span style="color:#f85149">Code</span><span style="color:#58a6ff">GPT</span> Desktop</h2>
+        <p style="color:#7d8590;font-size:13px;margin-bottom:20px">v2.0 &middot; Local AI &middot; Powered by Ollama</p>
+        <div style="text-align:left;margin:16px 0">
+            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">123</span> commands <span style="color:#7d8590">type / to see all</span></p>
+            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">8</span> AI agents <span style="color:#7d8590">coder, reviewer, architect</span></p>
+            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">26</span> tools <span style="color:#7d8590">Claude, Codex, Gemini</span></p>
+            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">6</span> personas <span style="color:#7d8590">hacker, teacher, minimal</span></p>
         </div>
-        <button class="start-btn" id="startBtn" style="pointer-events:auto">Start Chatting</button>
-        <div class="tip">No cloud &middot; No API keys &middot; Runs locally</div>
+        <p style="color:#7d8590;font-size:12px;margin-top:16px">Click anywhere or wait to start</p>
     </div>
 </div>
 
 <script>
 let busy = false;
 
-// Welcome modal — auto-dismiss after 5 seconds or any interaction
-function closeWelcome() {
+// Welcome — auto-dismiss after 3 seconds, or click/key
+var _welcomed = false;
+function _dismissWelcome() {
+    if (_welcomed) return;
+    _welcomed = true;
     var m = document.getElementById('welcomeModal');
-    if (m) { m.style.display = 'none'; m.remove(); }
-    document.getElementById('inp').focus();
+    if (m) m.parentNode.removeChild(m);
+    var inp = document.getElementById('inp');
+    if (inp) inp.focus();
 }
-
-// Dismiss on any click or key
-document.addEventListener('mousedown', function() {
-    if (document.getElementById('welcomeModal')) closeWelcome();
-});
-document.addEventListener('keydown', function() {
-    if (document.getElementById('welcomeModal')) closeWelcome();
-});
-
-// Auto-dismiss after 5 seconds
-setTimeout(function() {
-    if (document.getElementById('welcomeModal')) closeWelcome();
-}, 5000);
+setTimeout(_dismissWelcome, 3000);
+document.addEventListener('mousedown', _dismissWelcome);
+document.addEventListener('keydown', _dismissWelcome);
 
 async function init() {
     const name = await pywebview.api.get_username();
