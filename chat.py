@@ -1242,61 +1242,100 @@ def print_header(model):
         B = "bold bright_blue"
         D = "dim"
 
-        def build_banner(pos):
-            """Build banner with spider at given position (0-7 around the border)."""
-            sp_faces = ["  /╲(o.o)╱\\", "  /╲(o.o)╱\\", "~~~(o.o)>", "~~~(o.o)>",
-                        "  \\╱(o.o)╲/", "  \\╱(o.o)╲/", "<(o.o)~~~", "<(o.o)~~~"]
-            spider = sp_faces[pos % 8]
+        # Fit to terminal width — no clipping
+        w = min(console.width - 2, 56)
 
-            top_b = f"[{R}]  ╔════════════════════════════════════════════════════╗[/]"
-            bot_b = f"[{R}]  ╚════════════════════════════════════════════════════╝[/]"
-            empty = f"[{R}]  ║[/]                                                    [{R}]║[/]"
-            title = f"[{R}]  ║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]"
-            sub   = f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/]"
-            stats = f"[{R}]  ║[/]          [{B}]123[/] [{D}]commands ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]       [{R}]║[/]"
+        # Detailed spider models for each direction
+        spiders = {
+            "top": [
+                f"[{D}]        ╱╲[/]",
+                f"[{D}]    ╱╲(o.o)╱╲[/]",
+                f"[{D}]   ╱╱  ╲╱╱  ╲╲[/]",
+                f"[{D}]        ||[/]",
+            ],
+            "right": [
+                f"[{D}]  ╱╲[/]",
+                f"[{D}] (o.o)╲~~~[/]",
+                f"[{D}]  ╲╱[/]",
+            ],
+            "bottom": [
+                f"[{D}]        ||[/]",
+                f"[{D}]   ╲╲  ╱╲╲  ╱╱[/]",
+                f"[{D}]    ╲╱(o.o)╲╱[/]",
+                f"[{D}]        ╲╱[/]",
+            ],
+            "left": [
+                f"[{D}]      ╱╲[/]",
+                f"[{D}]~~~╱(o.o)[/]",
+                f"[{D}]      ╲╱[/]",
+            ],
+        }
+
+        def build_banner(pos_name):
+            """Build banner with detailed spider at given position."""
+            # Adaptive width border
+            inner = w - 4  # inside the ║ ║
+            pad = inner - 36  # 36 = content width
+            lpad = pad // 2
+            rpad = pad - lpad
+
+            top_b = f"[{R}]  ╔{'═' * inner}╗[/]"
+            bot_b = f"[{R}]  ╚{'═' * inner}╝[/]"
+            empty = f"[{R}]  ║[/]{' ' * inner}[{R}]║[/]"
+            title = f"[{R}]  ║[/]{' ' * lpad}[{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]{' ' * (rpad + 16)}[{R}]║[/]"
+            sub   = f"[{R}]  ║[/]{' ' * lpad}[{D}]local ai · powered by ollama[/]{' ' * (rpad + 7)}[{R}]║[/]"
+            stats = f"[{R}]  ║[/]{' ' * lpad}[{B}]123[/] [{D}]cmds ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]{' ' * (rpad + 8)}[{R}]║[/]"
 
             lines = []
-            p = pos % 8
 
-            if p in (0, 1):  # top
-                lines.append(f"[{D}]               {spider}[/]")
-                lines.append(f"[{D}]                  ||[/]")
+            if pos_name == "top":
+                for sl in spiders["top"]:
+                    lines.append(sl)
                 lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
-            elif p in (2, 3):  # right
-                lines.append(top_b)
-                lines.append(empty)
-                lines.append(title)
-                lines.append(f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/][{D}]~~{spider}[/]")
-                lines.extend([stats, empty, bot_b])
-            elif p in (4, 5):  # bottom
+            elif pos_name == "right":
+                lines.extend([top_b, empty, title])
+                # Spider on right side
+                for i, sl in enumerate(spiders["right"]):
+                    if i == 0:
+                        lines.append(f"{sub}  {sl}")
+                    elif i == 1:
+                        lines.append(f"{stats}  {sl}")
+                    else:
+                        lines.append(f"{empty}  {sl}")
+                lines.append(bot_b)
+            elif pos_name == "bottom":
                 lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
-                lines.append(f"[{D}]                       ||[/]")
-                lines.append(f"[{D}]                    {spider}[/]")
-            else:  # left (6, 7)
+                for sl in spiders["bottom"]:
+                    lines.append(sl)
+            else:  # left
                 lines.append(top_b)
-                lines.append(empty)
-                lines.append(f"[{D}]{spider}~~[/][{R}]║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]")
+                for i, sl in enumerate(spiders["left"]):
+                    if i == 1:
+                        lines.append(f"{sl}  [{R}]║[/]{' ' * lpad}[{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]{' ' * (rpad + 16)}[{R}]║[/]")
+                    else:
+                        lines.append(f"{'  ' * 5}  {empty}")
                 lines.extend([sub, stats, empty, bot_b])
 
             return "\n".join(lines)
 
-        # Animate spider crawling around the banner
+        # Animate spider crawling — 1 full lap, ~2 seconds
+        positions = ["top", "right", "bottom", "left"]
         try:
             with Live(
-                Text.from_markup(build_banner(0)),
-                console=console, refresh_per_second=6, transient=True,
+                Text.from_markup(build_banner("top")),
+                console=console, refresh_per_second=4, transient=True,
             ) as live:
-                for frame in range(16):  # 2 full laps
-                    live.update(Text.from_markup(build_banner(frame)))
-                    time.sleep(0.2)
+                for lap in range(2):
+                    for pos in positions:
+                        live.update(Text.from_markup(build_banner(pos)))
+                        time.sleep(0.4)
 
-            # Final position — static
+            # Final position
             import random
-            final = random.randint(0, 7)
+            final = random.choice(positions)
             console.print(Text.from_markup(build_banner(final)))
         except Exception:
-            # Fallback if Live doesn't work
-            console.print(Text.from_markup(build_banner(0)))
+            console.print(Text.from_markup(build_banner("top")))
         console.print()
         console.print(Text.from_markup(
             f"  [dim]model[/]    [bright_blue]{model}[/]\n"
