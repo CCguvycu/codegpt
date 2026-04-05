@@ -588,11 +588,24 @@ function _dismissWelcome() {
     if (_welcomed) return;
     _welcomed = true;
     var m = document.getElementById('welcomeModal');
-    if (m) m.parentNode.removeChild(m);
-    var inp = document.getElementById('inp');
-    if (inp) inp.focus();
+    if (m) {
+        m.style.display = 'none';
+        m.style.visibility = 'hidden';
+        m.style.pointerEvents = 'none';
+        m.style.opacity = '0';
+        try { m.parentNode.removeChild(m); } catch(e) {}
+    }
+    // Clean up listeners
+    document.removeEventListener('mousedown', _dismissWelcome);
+    document.removeEventListener('keydown', _dismissWelcome);
+    if (_dismissTimer) clearTimeout(_dismissTimer);
+    // Focus input
+    setTimeout(function() {
+        var inp = document.getElementById('inp');
+        if (inp) inp.focus();
+    }, 100);
 }
-setTimeout(_dismissWelcome, 3000);
+var _dismissTimer = setTimeout(_dismissWelcome, 3000);
 document.addEventListener('mousedown', _dismissWelcome);
 document.addEventListener('keydown', _dismissWelcome);
 
