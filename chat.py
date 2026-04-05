@@ -2412,10 +2412,35 @@ def get_weather(city):
 
 
 def open_url(url):
-    """Open a URL in the default browser."""
+    """Open a URL or search query in the default browser."""
     import webbrowser
-    if not url.startswith("http"):
+
+    # Shortcuts
+    shortcuts = {
+        "google": "https://google.com",
+        "youtube": "https://youtube.com",
+        "github": "https://github.com",
+        "reddit": "https://reddit.com",
+        "twitter": "https://x.com",
+        "x": "https://x.com",
+        "stackoverflow": "https://stackoverflow.com",
+        "npm": "https://npmjs.com",
+        "pypi": "https://pypi.org",
+        "ollama": "https://ollama.com",
+        "claude": "https://claude.ai",
+        "chatgpt": "https://chat.openai.com",
+        "gemini": "https://gemini.google.com",
+    }
+
+    if url.lower() in shortcuts:
+        url = shortcuts[url.lower()]
+    elif "." not in url and ":" not in url:
+        # No dots = search query, not a URL
+        query = url.replace(" ", "+")
+        url = f"https://google.com/search?q={query}"
+    elif not url.startswith("http"):
         url = "https://" + url
+
     webbrowser.open(url)
     print_sys(f"Opened: {url}")
     audit_log("OPEN_URL", url)
