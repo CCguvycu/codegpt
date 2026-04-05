@@ -5743,10 +5743,48 @@ def main():
                 tool = AI_TOOLS[tool_key]
                 tool_bin = tool["bin"]
 
-                # Block unsupported tools on Termux
+                # Block unsupported tools on Termux — explain why
                 is_termux = os.path.exists("/data/data/com.termux")
                 if is_termux and not tool.get("termux", True):
-                    print_err(f"{tool['name']} doesn't work on Termux.")
+                    reasons = {
+                        "opencode": "OpenCode needs Bun runtime and native x86/x64 binaries that aren't available for ARM processors.",
+                        "codex": "Codex requires native binaries that don't compile on ARM/Android.",
+                        "gpt4all": "GPT4All needs a C++ backend (llama.cpp) that requires desktop-level hardware to run.",
+                    }
+                    reason = reasons.get(tool_key, "This tool requires native binaries that aren't available for ARM/Android.")
+
+                    # Suggest alternatives
+                    alternatives = {
+                        "opencode": "/cline or /gemini",
+                        "codex": "/gemini or /cline",
+                        "gpt4all": "/ollama (if available) or /connect PC_IP",
+                    }
+                    alt = alternatives.get(tool_key, "Check /tools for available alternatives")
+
+                    compact = is_compact()
+                    if compact:
+                        console.print(Panel(
+                            Text.from_markup(
+                                f"[bold red]{tool['name']}[/]\n\n"
+                                f"  [dim]{reason[:60]}[/]\n\n"
+                                f"  Try: [bright_cyan]{alt}[/]"
+                            ),
+                            title="[bold red]Not Available[/]",
+                            border_style="red", padding=(0, 1), width=tw(),
+                        ))
+                    else:
+                        console.print(Panel(
+                            Text.from_markup(
+                                f"[bold red]{tool['name']} is not available on Termux[/]\n\n"
+                                f"  [bold]Why:[/]\n"
+                                f"  {reason}\n\n"
+                                f"  [bold]Alternatives:[/]\n"
+                                f"  [bright_cyan]{alt}[/]\n\n"
+                                f"  [dim]Or use this tool on your PC instead.[/]"
+                            ),
+                            title="[bold red]Not Supported[/]",
+                            border_style="red", padding=(1, 2), width=tw(),
+                        ))
                     continue
                 tool_args = user_input[len(cmd):].strip()
 
