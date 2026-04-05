@@ -96,6 +96,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "opencode-ai"],
         "default_args": [],
         "needs_key": "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+        "platforms": ["win32", "linux", "darwin"],  # No ARM/Termux
     },
     "codex": {
         "name": "Codex",
@@ -5616,10 +5617,20 @@ def main():
                     print_sys("Back to CodeGPT.")
                     audit_log(f"TOOL_EXIT", tool_key)
                 else:
+                    # Check platform support
+                    is_termux = os.path.exists("/data/data/com.termux")
+                    platforms = tool.get("platforms")
+                    if platforms:
+                        if is_termux and "termux" not in platforms and "linux" not in platforms:
+                            print_err(f"{tool['name']} doesn't support Termux/ARM.")
+                            continue
+                        elif sys.platform not in platforms and not is_termux:
+                            print_err(f"{tool['name']} doesn't support this platform.")
+                            continue
+
                     print_sys(f"Installing {tool['name']}...")
 
                     # Pick platform-specific install command
-                    is_termux = os.path.exists("/data/data/com.termux")
                     if is_termux and "install_termux" in tool:
                         install_cmd = list(tool["install_termux"])
                     elif os.name == "nt" and "install_win" in tool:
