@@ -422,6 +422,8 @@ COMMANDS = {
     "/vote": "All agents vote on a question",
     "/swarm": "Agents collaborate on a task step by step",
     "/team": "Start a team chat with 2 AIs (/team coder reviewer)",
+    "/room": "AI chat room — multiple AIs talk (/room coder reviewer architect)",
+    "/spectate": "Watch AIs chat without you (/spectate claude codex topic)",
     "/github": "GitHub tools (/github repos, issues, prs)",
     "/weather": "Get weather (/weather London)",
     "/open": "Open URL in browser (/open google.com)",
@@ -3909,6 +3911,149 @@ def team_chat(name1, name2, default_model, system):
     return history
 
 
+# --- Chat Room ---
+
+def chat_room(member_names, default_model, system, user_joins=True):
+    """Multi-AI chat room. User can join or spectate."""
+    members = [resolve_team_member(n) for n in member_names]
+
+    names_display = ", ".join(f"[{m['color']}]{m['name']}[/]" for m in members)
+    mode = "Join" if user_joins else "Spectate"
+
+    console.print(Rule(style="bright_green", characters="─"))
+    console.print(Text.from_markup(
+        f"  [bold]Chat Room[/] — {mode} mode\n"
+        f"  Members: {names_display}\n"
+    ))
+    if user_joins:
+        console.print(Text("  Type to talk. @name to address one AI. 'exit' to leave.", style="dim"))
+    else:
+        console.print(Text("  Watching AIs chat. Ctrl+C to stop.", style="dim"))
+    console.print(Rule(style="bright_green", characters="─"))
+    console.print()
+
+    history = []
+
+    if user_joins:
+        # Interactive room — user + multiple AIs
+        while True:
+            try:
+                user_input = prompt(
+                    [("class:prompt", " You ❯ ")],
+                    style=input_style,
+                    history=input_history,
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
+                break
+
+            if not user_input or user_input.lower() in ("exit", "/exit", "quit"):
+                break
+
+            console.print(Text(f"  {user_input}", style="bold white"))
+            console.print()
+            history.append({"speaker": "user", "content": user_input})
+
+            # Check for @mentions
+            mentioned = []
+            for m in members:
+                if f"@{m['name']}" in user_input.lower():
+                    mentioned.append(m)
+
+            # If no mentions, all respond
+            responders = mentioned if mentioned else members
+
+            for member in responders:
+                others = [m['name'] for m in members if m != member] + ["user"]
+                conv = "\n".join(
+                    f"{h['speaker']}: {h['content'][:200]}"
+                    for h in history[-10:]
+                )
+
+                room_prompt = (
+                    f"You are {member['name']} in a group chat with {', '.join(others)}.\n"
+                    f"Chat so far:\n{conv}\n\n"
+                    f"Respond as {member['name']}. Keep it short (2-4 sentences). "
+                    f"React to what was said. Agree, disagree, or add something new. "
+                    f"Don't repeat what others said."
+                )
+
+                try:
+                    resp = requests.post(OLLAMA_URL, json={
+                        "model": member["model"] or default_model,
+                        "messages": [
+                            {"role": "system", "content": member["system"]},
+                            {"role": "user", "content": room_prompt},
+                        ],
+                        "stream": False,
+                    }, timeout=60)
+                    response = resp.json().get("message", {}).get("content", "")
+                except Exception as e:
+                    response = f"(offline)"
+
+                console.print(Text.from_markup(f"  [{member['color']}]{member['name']}[/] {response}"))
+                console.print()
+                history.append({"speaker": member["name"], "content": response})
+                bus_send(member["name"], "codegpt", response[:200], "response")
+
+    else:
+        # Spectate mode — AIs chat with each other, user watches
+        try:
+            # Get initial topic from last arg or default
+            topic = "Introduce yourselves and start a technical discussion."
+            if history:
+                topic = history[-1]["content"]
+
+            current_input = topic
+            rounds = 0
+            max_rounds = 12
+
+            while rounds < max_rounds:
+                for member in members:
+                    rounds += 1
+                    if rounds > max_rounds:
+                        break
+
+                    others = [m['name'] for m in members if m != member]
+                    conv = "\n".join(
+                        f"{h['speaker']}: {h['content'][:200]}"
+                        for h in history[-8:]
+                    )
+
+                    room_prompt = (
+                        f"You are {member['name']} in a group chat with {', '.join(others)}.\n"
+                        f"{'Topic: ' + current_input if not history else 'Chat so far:'}\n"
+                        f"{conv}\n\n"
+                        f"Respond as {member['name']}. Keep it short (2-3 sentences). "
+                        f"Build on the conversation. Be opinionated."
+                    )
+
+                    try:
+                        resp = requests.post(OLLAMA_URL, json={
+                            "model": member["model"] or default_model,
+                            "messages": [
+                                {"role": "system", "content": member["system"]},
+                                {"role": "user", "content": room_prompt},
+                            ],
+                            "stream": False,
+                        }, timeout=60)
+                        response = resp.json().get("message", {}).get("content", "")
+                    except Exception as e:
+                        response = "(offline)"
+
+                    console.print(Text.from_markup(f"  [{member['color']}]{member['name']}[/] {response}"))
+                    console.print()
+                    history.append({"speaker": member["name"], "content": response})
+                    time.sleep(0.5)
+
+        except KeyboardInterrupt:
+            pass
+
+    console.print(Rule(style="dim", characters="─"))
+    console.print(Text(f"  Room closed. {len(history)} messages.", style="dim"))
+    console.print()
+    return history
+
+
 # --- Split Screen ---
 
 def get_tool_cmd(name):
@@ -5679,6 +5824,46 @@ def main():
                 print_sys(f"Sidebar: {state}")
                 if sidebar_enabled and console.width < 80:
                     print_sys("Terminal too narrow for sidebar. Widen to 80+ chars.")
+                continue
+
+            elif cmd == "/room":
+                parts = user_input[len("/room "):].strip().split()
+                if len(parts) >= 2:
+                    history = chat_room(parts, model, system, user_joins=True)
+                    for h in history:
+                        if h["speaker"] == "user":
+                            messages.append({"role": "user", "content": h["content"]})
+                        else:
+                            messages.append({"role": "assistant", "content": f"[{h['speaker']}] {h['content']}"})
+                    session_stats["messages"] += len(history)
+                else:
+                    print_sys("Usage: /room coder reviewer architect")
+                    print_sys("       /room claude codex gemini deepseek")
+                    print_sys(f"\nAvailable: {', '.join(list(AI_AGENTS.keys()) + list(TOOL_PERSONAS.keys()))}")
+                continue
+
+            elif cmd == "/spectate":
+                args = user_input[len("/spectate "):].strip().split()
+                if len(args) >= 2:
+                    # Last arg could be a topic
+                    names = args
+                    topic = ""
+                    # Check if last args aren't AI names — treat as topic
+                    all_names = set(AI_AGENTS.keys()) | set(TOOL_PERSONAS.keys())
+                    topic_words = []
+                    while names and names[-1] not in all_names:
+                        topic_words.insert(0, names.pop())
+                    topic = " ".join(topic_words) if topic_words else "Discuss the best programming practices"
+
+                    if len(names) >= 2:
+                        # Inject topic
+                        history_init = [{"speaker": "moderator", "content": topic}]
+                        h = chat_room(names, model, system, user_joins=False)
+                    else:
+                        print_sys("Need at least 2 AIs. Example: /spectate coder reviewer discuss Python")
+                else:
+                    print_sys("Usage: /spectate coder reviewer discuss error handling")
+                    print_sys("       /spectate claude codex gemini debate which is best")
                 continue
 
             elif cmd == "/monitor":
