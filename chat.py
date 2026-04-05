@@ -471,9 +471,15 @@ class SlashCompleter(Completer):
         text = document.text_before_cursor.lstrip()
         if text.startswith("/"):
             typed = text.lower()
-            # Main commands
+            on_termux = os.path.exists("/data/data/com.termux")
+
+            # Main commands — hide unsupported tool commands on Termux
             for cmd, desc in COMMANDS.items():
                 if cmd.startswith(typed):
+                    # Skip tool commands that don't work on Termux
+                    tool_name = cmd[1:]
+                    if on_termux and tool_name in AI_TOOLS and not AI_TOOLS[tool_name].get("termux", True):
+                        continue
                     yield Completion(
                         cmd,
                         start_position=-len(text),
@@ -5736,6 +5742,12 @@ def main():
                 tool_key = cmd[1:]  # strip /
                 tool = AI_TOOLS[tool_key]
                 tool_bin = tool["bin"]
+
+                # Block unsupported tools on Termux
+                is_termux = os.path.exists("/data/data/com.termux")
+                if is_termux and not tool.get("termux", True):
+                    print_err(f"{tool['name']} doesn't work on Termux.")
+                    continue
                 tool_args = user_input[len(cmd):].strip()
 
                 if shutil.which(tool_bin):
