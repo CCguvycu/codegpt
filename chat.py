@@ -28,6 +28,21 @@ from prompt_toolkit.styles import Style as PtStyle
 
 # --- Config ---
 
+# Fix PATH for Termux and pip --user installs
+_extra_paths = [
+    os.path.expanduser("~/.local/bin"),
+    os.path.expanduser("~/bin"),
+]
+if os.path.exists("/data/data/com.termux"):
+    _extra_paths.extend([
+        "/data/data/com.termux/files/usr/bin",
+        "/data/data/com.termux/files/home/.local/bin",
+        os.path.expanduser("~/.npm-global/bin"),
+    ])
+for _p in _extra_paths:
+    if _p not in os.environ.get("PATH", "") and os.path.isdir(_p):
+        os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
+
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL = "llama3.2"
 CHATS_DIR = Path.home() / ".codegpt" / "conversations"
