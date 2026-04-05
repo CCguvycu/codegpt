@@ -575,7 +575,7 @@ pre:hover .copy-btn { opacity: 1; }
             <div class="feat"><span class="num">26</span> <span>tools</span> <span class="label">Claude, Codex, Gemini...</span></div>
             <div class="feat"><span class="num">6</span> <span>personas</span> <span class="label">hacker, teacher, minimal...</span></div>
         </div>
-        <button class="start-btn" id="startBtn">Start Chatting</button>
+        <button class="start-btn" id="startBtn" style="pointer-events:auto">Start Chatting</button>
         <div class="tip">No cloud &middot; No API keys &middot; Runs locally</div>
     </div>
 </div>
@@ -583,35 +583,25 @@ pre:hover .copy-btn { opacity: 1; }
 <script>
 let busy = false;
 
+// Welcome modal — auto-dismiss after 5 seconds or any interaction
 function closeWelcome() {
-    const m = document.getElementById('welcomeModal');
-    if (m) { m.style.opacity = '0'; setTimeout(() => m.remove(), 300); }
-    localStorage.setItem('codegpt_welcomed', '1');
+    var m = document.getElementById('welcomeModal');
+    if (m) { m.style.display = 'none'; m.remove(); }
     document.getElementById('inp').focus();
 }
 
-// Auto-close if already seen
-if (localStorage.getItem('codegpt_welcomed')) {
-    const m = document.getElementById('welcomeModal');
-    if (m) m.remove();
-} else {
-    // Also allow clicking anywhere on overlay or pressing Enter/Escape
-    document.addEventListener('DOMContentLoaded', function() {
-        const btn = document.getElementById('startBtn');
-        if (btn) btn.addEventListener('click', closeWelcome);
-        const overlay = document.getElementById('welcomeModal');
-        if (overlay) {
-            overlay.addEventListener('click', function(e) {
-                if (e.target === overlay) closeWelcome();
-            });
-        }
-        document.addEventListener('keydown', function(e) {
-            if ((e.key === 'Enter' || e.key === 'Escape') && document.getElementById('welcomeModal')) {
-                closeWelcome();
-            }
-        }, {once: true});
-    });
-}
+// Dismiss on any click or key
+document.addEventListener('mousedown', function() {
+    if (document.getElementById('welcomeModal')) closeWelcome();
+});
+document.addEventListener('keydown', function() {
+    if (document.getElementById('welcomeModal')) closeWelcome();
+});
+
+// Auto-dismiss after 5 seconds
+setTimeout(function() {
+    if (document.getElementById('welcomeModal')) closeWelcome();
+}, 5000);
 
 async function init() {
     const name = await pywebview.api.get_username();
