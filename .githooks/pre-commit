@@ -1,0 +1,51 @@
+#!/bin/bash
+# Pre-commit hook: block secrets from being committed
+# Install: git config core.hooksPath .githooks
+
+echo "Scanning for secrets..."
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+FOUND=0
+
+for file in $STAGED; do
+    # Skip binary files
+    if file "$file" 2>/dev/null | grep -q "binary"; then continue; fi
+
+    # Skip security config files (they contain patterns, not actual secrets)
+    case "$file" in
+        .githooks/*|.github/workflows/security*|SECURITY.md) continue ;;
+    esac
+
+    # API keys (OpenAI, AWS, GitHub, Anthropic)
+    if grep -nE "(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|sk-ant-[a-zA-Z0-9]{20,})" "$file" 2>/dev/null; then
+        echo "BLOCKED: Possible API key in $file"
+        FOUND=1
+    fi
+
+    # Telegram bot tokens
+    if grep -nE "[0-9]{8,10}:[a-zA-Z0-9_-]{35}" "$file" 2>/dev/null; then
+        echo "BLOCKED: Possible Telegram token in $file"
+        FOUND=1
+    fi
+
+    # Private keys
+    if grep -n "PRIVATE KEY" "$file" 2>/dev/null; then
+        echo "BLOCKED: Private key in $file"
+        FOUND=1
+    fi
+
+    # Hardcoded passwords
+    if grep -nE "password\s*=\s*['\"][^'\"]{8,}" "$file" 2>/dev/null; then
+        echo "WARNING: Possible hardcoded password in $file"
+    fi
+done
+
+if [ "$FOUND" -eq 1 ]; then
+    echo ""
+    echo "Commit blocked — secrets detected."
+    echo "Remove the secrets and try again."
+    echo "To bypass (NOT recommended): git commit --no-verify"
+    exit 1
+fi
+
+echo "No secrets found. Proceeding."

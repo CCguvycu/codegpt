@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// Post-install: ensure Python deps are installed
+/**
+ * Post-install: check environment, DO NOT auto-install pip packages.
+ * Users must explicitly run `ai setup` or `pip install` themselves.
+ * This prevents supply chain attacks via transitive dependency hijacking.
+ */
+
 const { execSync } = require("child_process");
 
 const pythonCmds = process.platform === "win32"
@@ -18,23 +23,27 @@ function findPython() {
 
 const python = findPython();
 
-if (!python) {
-  console.log("\n  CodeGPT installed but Python not found.");
-  console.log("  Install Python from https://python.org");
-  console.log("  Then run: pip install requests rich prompt-toolkit\n");
-  process.exit(0);
+console.log("\n  CodeGPT installed successfully.\n");
+
+if (python) {
+  // Check if deps are already installed
+  let depsOk = true;
+  try {
+    execSync(`${python} -c "import requests, rich, prompt_toolkit"`, { stdio: "pipe" });
+  } catch {
+    depsOk = false;
+  }
+
+  if (depsOk) {
+    console.log("  Python dependencies: ready");
+  } else {
+    console.log("  Python found but dependencies missing.");
+    console.log("  Run: pip install requests rich prompt-toolkit");
+  }
+} else {
+  console.log("  Python not found — Node.js mode will be used.");
+  console.log("  Install Python for the full 80+ command experience.");
 }
 
-// Install Python deps
-console.log("  Installing Python dependencies...");
-try {
-  execSync(`${python} -m pip install requests rich prompt-toolkit --quiet`, {
-    stdio: "inherit",
-  });
-  console.log("  Python dependencies installed.");
-} catch {
-  console.log("  Warning: Could not install Python deps.");
-  console.log("  Run manually: pip install requests rich prompt-toolkit");
-}
-
-console.log("\n  CodeGPT ready! Type: ai\n");
+console.log("\n  Type: ai");
+console.log("  Docs: https://github.com/CCguvycu/codegpt\n");
