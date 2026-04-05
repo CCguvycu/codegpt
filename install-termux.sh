@@ -198,7 +198,7 @@ echo ""
 echo "  ╔══════════════════════════════════════╗"
 echo "  ║  Installation complete!               ║"
 echo "  ║                                       ║"
-echo "  ║  Type: ai                             ║"
+echo "  ║  Type: code                           ║"
 echo "  ║                                       ║"
 if command -v ollama &>/dev/null; then
 echo "  ║  Ollama: installed                    ║"

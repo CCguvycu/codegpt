@@ -45,5 +45,5 @@ if (python) {
   console.log("  Install Python for the full 80+ command experience.");
 }
 
-console.log("\n  Type: ai");
+console.log("\n  Type: code");
 console.log("  Docs: https://github.com/CCguvycu/codegpt\n");

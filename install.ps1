@@ -115,7 +115,7 @@ Write-Host ""
 Write-Host "  ╔══════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "  ║  Installation complete!               ║" -ForegroundColor Green
 Write-Host "  ║                                       ║" -ForegroundColor Green
-Write-Host "  ║  Open a new terminal and type: ai     ║" -ForegroundColor Green
+Write-Host "  ║  Open a new terminal and type: code   ║" -ForegroundColor Green
 Write-Host "  ║                                       ║" -ForegroundColor Green
 Write-Host "  ║  Commands:                            ║" -ForegroundColor Green
 Write-Host "  ║    ai          — start chat            ║" -ForegroundColor Green
