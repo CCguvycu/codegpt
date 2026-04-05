@@ -5692,30 +5692,14 @@ def main():
                     }
                     alt = alternatives.get(tool_key, "Check /tools for available alternatives")
 
-                    compact = is_compact()
-                    if compact:
-                        console.print(Panel(
-                            Text.from_markup(
-                                f"[bold red]{tool['name']}[/]\n\n"
-                                f"  [dim]{reason[:60]}[/]\n\n"
-                                f"  Try: [bright_cyan]{alt}[/]"
-                            ),
-                            title="[bold red]Not Available[/]",
-                            border_style="red", padding=(0, 1), width=tw(),
-                        ))
-                    else:
-                        console.print(Panel(
-                            Text.from_markup(
-                                f"[bold red]{tool['name']} is not available on Termux[/]\n\n"
-                                f"  [bold]Why:[/]\n"
-                                f"  {reason}\n\n"
-                                f"  [bold]Alternatives:[/]\n"
-                                f"  [bright_cyan]{alt}[/]\n\n"
-                                f"  [dim]Or use this tool on your PC instead.[/]"
-                            ),
-                            title="[bold red]Not Supported[/]",
-                            border_style="red", padding=(1, 2), width=tw(),
-                        ))
+                    console.print()
+                    console.print(Text.from_markup(f"  [bold red]✗ {tool['name']} — not available on Termux[/]"))
+                    console.print()
+                    console.print(Text.from_markup(f"  [bold]Why:[/] {reason}"))
+                    console.print()
+                    console.print(Text.from_markup(f"  [bold]Try instead:[/] [bright_cyan]{alt}[/]"))
+                    console.print(Text("  Or use this tool on your PC.", style="dim"))
+                    console.print()
                     continue
                 tool_args = user_input[len(cmd):].strip()
 
@@ -5793,13 +5777,6 @@ def main():
                     print_sys("Back to CodeGPT.")
                     audit_log(f"TOOL_EXIT", tool_key)
                 else:
-                    # Check platform support
-                    is_termux = os.path.exists("/data/data/com.termux")
-                    if is_termux and not tool.get("termux", True):
-                        print_err(f"{tool['name']} doesn't support Termux/ARM.")
-                        print_sys("Use a desktop/PC for this tool.")
-                        continue
-
                     # Pick platform-specific install command
                     if is_termux and "install_termux" in tool:
                         install_cmd = list(tool["install_termux"])
