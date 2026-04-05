@@ -473,31 +473,76 @@ try:
     input_history = FileHistory(str(_hist_path))
 except Exception:
     input_history = InMemoryHistory()
+# Command categories for autocomplete display
+CMD_CATEGORIES = {}
+_cat_map = {
+    "Chat": ["/new", "/save", "/load", "/delete", "/copy", "/regen", "/edit", "/history", "/clear", "/quit"],
+    "Model": ["/model", "/modelinfo", "/params", "/temp", "/think", "/tokens", "/compact", "/system"],
+    "AI Agents": ["/agent", "/agents", "/all", "/vote", "/swarm", "/team", "/room", "/spectate", "/dm", "/chat-link"],
+    "AI Lab": ["/lab", "/chain", "/race", "/prompts", "/compare"],
+    "Tools": ["/tools", "/bg", "/split", "/splitv", "/grid", "/running", "/killall"],
+    "Connect": ["/connect", "/disconnect", "/server", "/qr", "/scan"],
+    "Files & Code": ["/file", "/run", "/code", "/shell", "/browse", "/open", "/export"],
+    "Memory": ["/mem", "/train", "/pin", "/pins", "/search", "/fork", "/rate", "/tag"],
+    "Profile": ["/profile", "/setname", "/setbio", "/persona", "/personas", "/usage"],
+    "Skills": ["/skill", "/skills", "/auto", "/cron", "/crons"],
+    "Comms": ["/broadcast", "/inbox", "/feed", "/monitor", "/hub"],
+    "System": ["/github", "/weather", "/spotify", "/volume", "/bright", "/sysinfo", "/voice", "/remind", "/reminders", "/shortcuts"],
+    "Security": ["/pin-set", "/pin-remove", "/lock", "/audit", "/security", "/permissions"],
+}
+for _cat, _cmds in _cat_map.items():
+    for _cmd in _cmds:
+        CMD_CATEGORIES[_cmd] = _cat
+# Tools get their own category
+for _tool_name in AI_TOOLS:
+    CMD_CATEGORIES[f"/{_tool_name}"] = "Tool"
+CMD_CATEGORIES["/claude"] = "Tool"
+CMD_CATEGORIES["/openclaw"] = "Tool"
+CMD_CATEGORIES["/sidebar"] = "UI"
+CMD_CATEGORIES["/diff"] = "Chat"
+CMD_CATEGORIES["/help"] = "Help"
+
+
 class SlashCompleter(Completer):
-    """Show all commands when typing /"""
+    """Show all commands with categories when typing /"""
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor.lstrip()
         if text.startswith("/"):
             typed = text.lower()
             on_termux = os.path.exists("/data/data/com.termux")
 
-            # Main commands — hide unsupported tool commands on Termux
-            for cmd, desc in COMMANDS.items():
+            # Custom skills first
+            skills = load_skills()
+            for skill_name in skills:
+                cmd = f"/{skill_name}"
                 if cmd.startswith(typed):
-                    # Skip tool commands that don't work on Termux
-                    tool_name = cmd[1:]
-                    if on_termux and tool_name in AI_TOOLS and not AI_TOOLS[tool_name].get("termux", True):
-                        continue
                     yield Completion(
                         cmd,
                         start_position=-len(text),
                         display=f"{cmd}",
-                        display_meta=desc,
+                        display_meta=f"skill: {skills[skill_name].get('desc', '')[:30]}",
                     )
+
+            # Main commands with categories
+            for cmd, desc in COMMANDS.items():
+                if cmd.startswith(typed):
+                    tool_name = cmd[1:]
+                    if on_termux and tool_name in AI_TOOLS and not AI_TOOLS[tool_name].get("termux", True):
+                        continue
+                    cat = CMD_CATEGORIES.get(cmd, "")
+                    meta = f"[{cat}] {desc}" if cat else desc
+                    yield Completion(
+                        cmd,
+                        start_position=-len(text),
+                        display=f"{cmd}",
+                        display_meta=meta,
+                    )
+
             # Aliases
             for alias, target in ALIASES.items():
                 if alias.startswith(typed) and alias not in COMMANDS:
                     desc = COMMANDS.get(target, "")
+                    cat = CMD_CATEGORIES.get(target, "")
                     yield Completion(
                         alias,
                         start_position=-len(text),
@@ -508,7 +553,12 @@ class SlashCompleter(Completer):
 cmd_completer = SlashCompleter()
 input_style = PtStyle.from_dict({
     "prompt": "ansicyan bold",
-    "bottom-toolbar": "bg:#1a1a2e #ffffff",
+    "bottom-toolbar": "bg:#1a1a2e #888888",
+    "completion-menu": "bg:#1a1a2e #ffffff",
+    "completion-menu.completion": "bg:#1a1a2e #ffffff",
+    "completion-menu.completion.current": "bg:#00aaff #ffffff bold",
+    "completion-menu.meta.completion": "bg:#1a1a2e #888888",
+    "completion-menu.meta.completion.current": "bg:#00aaff #ffffff",
 })
 
 session_stats = {"messages": 0, "tokens_in": 0, "tokens_out": 0, "start": time.time()}
