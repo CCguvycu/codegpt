@@ -4,30 +4,37 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codegpt"
-version = "1.0.0"
-description = "Local AI Assistant Hub — CLI, agents, training, 15+ tool integrations"
+version = "2.0.0"
+description = "Local AI Assistant Hub — 123 commands, 26 tools, 8 agents"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [{name = "ArukuX"}]
 
+# Only 4 dependencies — minimal attack surface
 dependencies = [
     "requests>=2.31.0,<3.0.0",
     "rich>=13.0.0,<15.0.0",
     "prompt-toolkit>=3.0.0,<4.0.0",
+    "qrcode>=7.0,<9.0",
 ]
 
 [project.optional-dependencies]
-full = [
-    "textual>=0.40.0",
-    "python-telegram-bot>=20.0",
-    "flask>=3.0.0",
-    "groq>=0.4.0",
-    "SpeechRecognition>=3.10.0",
+# Install only if you need these features
+voice = ["SpeechRecognition>=3.10.0,<4.0.0"]
+tui = ["textual>=1.0.0,<2.0.0"]
+web = ["flask>=3.0.0,<4.0.0"]
+bot = ["python-telegram-bot>=21.0,<22.0"]
+all = [
+    "SpeechRecognition>=3.10.0,<4.0.0",
+    "textual>=1.0.0,<2.0.0",
+    "flask>=3.0.0,<4.0.0",
+    "python-telegram-bot>=21.0,<22.0",
 ]
 
 [project.scripts]
 ai = "ai_cli.__main__:main"
+code = "ai_cli.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_cli*"]

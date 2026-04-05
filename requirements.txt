@@ -1,15 +1,11 @@
-# Core (required)
+# Core — only 4 packages needed
 requests>=2.31.0,<3.0.0
 rich>=13.0.0,<15.0.0
-prompt_toolkit>=3.0.0,<4.0.0
+prompt-toolkit>=3.0.0,<4.0.0
+qrcode>=7.0,<9.0
 
-# Optional — full features
-textual>=1.0.0,<2.0.0
-python-telegram-bot>=21.0,<22.0
-SpeechRecognition>=3.10.0,<4.0.0
-flask>=3.0.0,<4.0.0
-groq>=0.4.0,<2.0.0
-
-# PyAudio - install separately for voice input:
-#   pipwin install pyaudio  OR
-#   pip install pipwin && pipwin install pyaudio
+# Optional features (install with: pip install codegpt[voice] etc.)
+# SpeechRecognition>=3.10.0,<4.0.0   # /voice
+# textual>=1.0.0,<2.0.0              # TUI (app.py)
+# flask>=3.0.0,<4.0.0                # Web (web.py)
+# python-telegram-bot>=21.0,<22.0    # Bot (bot.py)

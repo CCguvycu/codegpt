@@ -26,11 +26,19 @@ jobs:
       - name: Audit Python dependencies
         run: |
           pip install pip-audit safety
-          pip install requests rich prompt-toolkit
-          echo "=== pip-audit ==="
-          pip-audit --strict || true
-          echo "=== safety check ==="
-          safety check || true
+          pip install -r requirements.txt
+          echo "=== pip-audit (check for known CVEs) ==="
+          pip-audit --strict --desc 2>&1 || true
+          echo ""
+          echo "=== safety check (vulnerability database) ==="
+          safety check --full-report 2>&1 || true
+          echo ""
+          echo "=== Dependency tree (check for bloat) ==="
+          pip install pipdeptree
+          pipdeptree --warn silence 2>&1
+          echo ""
+          echo "=== Package count ==="
+          pip list --format=json | python -c "import sys,json; pkgs=json.load(sys.stdin); print(f'Total packages: {len(pkgs)}'); [print(f'  WARNING: unexpected package: {p[\"name\"]}') for p in pkgs if p['name'] not in ('pip','setuptools','wheel','requests','rich','prompt-toolkit','qrcode','certifi','charset-normalizer','idna','urllib3','markdown-it-py','mdurl','pygments','wcwidth','colorama','pip-audit','safety','pipdeptree')]"
 
       - name: Set up Node.js
         uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a  # v4.2.0
