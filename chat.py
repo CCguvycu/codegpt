@@ -7171,33 +7171,47 @@ def main():
                 continue
 
             elif cmd == "/desktop":
-                # Install pywebview if needed, then launch desktop app
+                # Find desktop.py — check multiple locations
+                desktop_paths = [
+                    os.path.join(str(Path(__file__).parent), "desktop.py"),
+                    os.path.join(str(Path.home()), "codegpt", "desktop.py"),
+                    os.path.join(str(Path.home()), "OneDrive", "Desktop", "Coding", "claude-chat", "desktop.py"),
+                ]
+                desktop_py = None
+                for dp in desktop_paths:
+                    if os.path.isfile(dp):
+                        desktop_py = dp
+                        break
+
+                if not desktop_py:
+                    # Download it
+                    print_sys("Downloading desktop app...")
+                    desktop_py = os.path.join(str(Path.home()), ".codegpt", "desktop.py")
+                    try:
+                        r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/desktop.py", timeout=15)
+                        Path(desktop_py).parent.mkdir(parents=True, exist_ok=True)
+                        Path(desktop_py).write_text(r.text, encoding="utf-8")
+                        print_success("Downloaded.")
+                    except Exception as e:
+                        print_err(f"Cannot download: {e}")
+                        continue
+
+                # Install pywebview if needed
                 try:
                     import webview
-                    print_sys("Launching desktop app...")
-                    project_dir = str(Path(__file__).parent)
-                    subprocess.Popen(
-                        [sys.executable, os.path.join(project_dir, "desktop.py")],
-                        cwd=project_dir,
-                    )
-                    print_sys("Desktop app opened in a new window.")
                 except ImportError:
-                    print_sys("Installing desktop app (pywebview)...")
-                    result = subprocess.run(
+                    print_sys("Installing pywebview...")
+                    subprocess.run(
                         [sys.executable, "-m", "pip", "install", "pywebview"],
                         capture_output=True, text=True, timeout=120,
                     )
-                    if result.returncode == 0:
-                        print_success("Installed. Launching...")
-                        project_dir = str(Path(__file__).parent)
-                        subprocess.Popen(
-                            [sys.executable, os.path.join(project_dir, "desktop.py")],
-                            cwd=project_dir,
-                        )
-                        print_sys("Desktop app opened.")
-                    else:
-                        print_err(f"Install failed: {result.stderr[:200]}")
-                        print_sys("Try manually: pip install pywebview")
+
+                print_sys("Launching desktop app...")
+                subprocess.Popen(
+                    [sys.executable, desktop_py],
+                    cwd=str(Path(desktop_py).parent),
+                )
+                print_sys("Desktop app opened in a new window.")
                 continue
 
             elif cmd == "/permissions":
