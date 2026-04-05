@@ -507,72 +507,99 @@ def save_permissions():
     }, indent=2))
 
 
-# Actions that need confirmation
+# Actions that need confirmation — (description, risk level)
+# Risk: CRITICAL, HIGH, MEDIUM, LOW
 RISKY_ACTIONS = {
-    "shell": "Run a shell command",
-    "code_exec": "Execute Python code",
-    "tool_launch": "Launch an external AI tool",
-    "tool_install": "Install a new tool",
-    "file_read": "Read a file into context",
-    "export": "Export conversation to file",
-    "connect": "Connect to a remote server",
-    "train_build": "Build a custom AI model",
-    "train_collect": "Collect conversation as training data",
-    "mem_clear": "Clear all AI memories",
-    "mem_save": "Save to AI memory",
-    "pin_set": "Set a login PIN",
-    "save_chat": "Save conversation to disk",
-    "delete_chat": "Delete a saved conversation",
-    "model_change": "Switch AI model",
-    "persona_change": "Change AI persona",
-    "system_prompt": "Modify system prompt",
-    "broadcast": "Send message to all tools",
-    "agent_run": "Run an AI agent",
-    "swarm": "Run agent swarm pipeline",
-    "all_agents": "Ask all agents at once",
-    "race": "Race all models",
-    "team_chat": "Start team chat with AIs",
-    "compact": "Summarize and compact conversation",
-    "fork": "Fork conversation",
-    "qr": "Generate QR code with your IP",
-    "open_url": "Open a URL in browser",
-    "spotify": "Control Spotify",
-    "volume": "Change system volume",
-    "brightness": "Change screen brightness",
-    "github": "Access GitHub",
+    # CRITICAL — can damage system, leak data, or run arbitrary code
+    "shell":          ("Run a shell command",              "CRITICAL"),
+    "code_exec":      ("Execute Python code",              "CRITICAL"),
+    "tool_install":   ("Install a new tool",               "CRITICAL"),
+    "connect":        ("Connect to a remote server",       "CRITICAL"),
+    "pin_set":        ("Set a login PIN",                  "CRITICAL"),
+    # HIGH — external access, data modification
+    "tool_launch":    ("Launch an external AI tool",       "HIGH"),
+    "open_url":       ("Open a URL in browser",            "HIGH"),
+    "github":         ("Access GitHub",                    "HIGH"),
+    "delete_chat":    ("Delete a saved conversation",      "HIGH"),
+    "mem_clear":      ("Clear all AI memories",            "HIGH"),
+    "train_build":    ("Build a custom AI model",          "HIGH"),
+    "qr":             ("Generate QR code with your IP",    "HIGH"),
+    "broadcast":      ("Send message to all tools",        "HIGH"),
+    "system_prompt":  ("Modify system prompt",             "HIGH"),
+    # MEDIUM — uses resources, changes settings
+    "file_read":      ("Read a file into context",         "MEDIUM"),
+    "export":         ("Export conversation to file",      "MEDIUM"),
+    "save_chat":      ("Save conversation to disk",        "MEDIUM"),
+    "train_collect":  ("Collect conversation as training",  "MEDIUM"),
+    "mem_save":       ("Save to AI memory",                "MEDIUM"),
+    "agent_run":      ("Run an AI agent",                  "MEDIUM"),
+    "swarm":          ("Run agent swarm pipeline",         "MEDIUM"),
+    "all_agents":     ("Ask all agents at once",           "MEDIUM"),
+    "race":           ("Race all models",                  "MEDIUM"),
+    "team_chat":      ("Start team chat with AIs",         "MEDIUM"),
+    "spotify":        ("Control Spotify",                  "MEDIUM"),
+    "volume":         ("Change system volume",             "MEDIUM"),
+    "brightness":     ("Change screen brightness",         "MEDIUM"),
+    # LOW — safe changes
+    "model_change":   ("Switch AI model",                  "LOW"),
+    "persona_change": ("Change AI persona",                "LOW"),
+    "compact":        ("Summarize and compact conversation","LOW"),
+    "fork":           ("Fork conversation",                "LOW"),
+}
+
+RISK_COLORS = {
+    "CRITICAL": "bold red",
+    "HIGH": "red",
+    "MEDIUM": "yellow",
+    "LOW": "green",
+}
+
+RISK_ICONS = {
+    "CRITICAL": "☠",
+    "HIGH": "⚠",
+    "MEDIUM": "◇",
+    "LOW": "△",
 }
 
 
 def ask_permission(action, detail=""):
-    """Ask user for permission before performing a risky action.
+    """Ask user for permission before performing an action.
     Returns True if allowed, False if denied."""
 
     # Already permanently approved
     if action in PERMISSION_ALWAYS_ALLOW:
         return True
 
-    # Build the prompt
-    action_desc = RISKY_ACTIONS.get(action, action)
+    # Get action info
+    action_info = RISKY_ACTIONS.get(action, (action, "MEDIUM"))
+    if isinstance(action_info, str):
+        action_desc, risk = action_info, "MEDIUM"
+    else:
+        action_desc, risk = action_info
+
+    risk_color = RISK_COLORS.get(risk, "yellow")
+    risk_icon = RISK_ICONS.get(risk, "?")
     compact = is_compact()
 
     if compact:
         console.print(Panel(
             Text.from_markup(
-                f"[bold yellow]Permission[/]\n"
+                f"[{risk_color}]{risk_icon} {risk}[/]\n"
                 f"  {action_desc}\n"
-                + (f"  [dim]{detail[:40]}[/]\n" if detail else "")
+                + (f"  [dim]{detail[:35]}[/]\n" if detail else "")
             ),
-            border_style="yellow", padding=(0, 1), width=tw(),
+            border_style=risk_color.replace("bold ", ""), padding=(0, 1), width=tw(),
         ))
     else:
         console.print(Panel(
             Text.from_markup(
-                f"[bold yellow]Permission Required[/]\n\n"
+                f"[{risk_color}]{risk_icon} Risk: {risk}[/]\n\n"
                 f"  Action: [bright_cyan]{action_desc}[/]\n"
                 + (f"  Detail: [dim]{detail[:60]}[/]\n" if detail else "")
                 + f"\n  [dim](y)es  (n)o  (a)lways allow this[/]"
             ),
-            border_style="yellow", padding=(0, 2), width=tw(),
+            title=f"[{risk_color}]Permission[/]",
+            border_style=risk_color.replace("bold ", ""), padding=(0, 2), width=tw(),
         ))
 
     try:
@@ -6381,10 +6408,17 @@ def main():
                                   title_style="bold yellow", show_header=True, header_style="bold")
                     table.add_column("Action", style="bright_cyan", width=16)
                     table.add_column("Description", style="dim")
+                    table.add_column("Risk", width=10)
                     table.add_column("Status", width=10)
-                    for action, desc in RISKY_ACTIONS.items():
+                    for action, info in RISKY_ACTIONS.items():
+                        if isinstance(info, tuple):
+                            desc, risk = info
+                        else:
+                            desc, risk = info, "MEDIUM"
+                        rc = RISK_COLORS.get(risk, "yellow")
+                        ri = RISK_ICONS.get(risk, "?")
                         status = "[green]allowed[/]" if action in PERMISSION_ALWAYS_ALLOW else "[yellow]ask[/]"
-                        table.add_row(action, desc, status)
+                        table.add_row(action, desc, f"[{rc}]{ri} {risk}[/]", status)
                     console.print(table)
                     console.print(Text("  /permissions reset — revoke all", style="dim"))
                     console.print()
