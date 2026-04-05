@@ -438,6 +438,7 @@ COMMANDS = {
     "/audit": "View security audit log",
     "/security": "Security status dashboard",
     "/permissions": "View/reset action permissions",
+    "/desktop": "Launch CodeGPT desktop app",
     "/skill": "Create a custom command (/skill name prompt)",
     "/skills": "List custom skills",
     "/browse": "Browse a URL and summarize (/browse url)",
@@ -7167,6 +7168,36 @@ def main():
                 else:
                     print_sys(f"Usage: /{cmd[1:]} <your message>")
                     print_sys(f"  Prompt: {skill['prompt'][:60]}...")
+                continue
+
+            elif cmd == "/desktop":
+                # Install pywebview if needed, then launch desktop app
+                try:
+                    import webview
+                    print_sys("Launching desktop app...")
+                    project_dir = str(Path(__file__).parent)
+                    subprocess.Popen(
+                        [sys.executable, os.path.join(project_dir, "desktop.py")],
+                        cwd=project_dir,
+                    )
+                    print_sys("Desktop app opened in a new window.")
+                except ImportError:
+                    print_sys("Installing desktop app (pywebview)...")
+                    result = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "pywebview"],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    if result.returncode == 0:
+                        print_success("Installed. Launching...")
+                        project_dir = str(Path(__file__).parent)
+                        subprocess.Popen(
+                            [sys.executable, os.path.join(project_dir, "desktop.py")],
+                            cwd=project_dir,
+                        )
+                        print_sys("Desktop app opened.")
+                    else:
+                        print_err(f"Install failed: {result.stderr[:200]}")
+                        print_sys("Try manually: pip install pywebview")
                 continue
 
             elif cmd == "/permissions":
