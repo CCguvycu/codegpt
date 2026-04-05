@@ -1236,15 +1236,59 @@ def print_header(model):
         mem_count = len(load_memories())
 
         console.print()
-        # Claude Code style banner — red and blue
-        console.print(Text.from_markup(
-            "[bold red]  ╭─────────────────────────────────╮[/]\n"
-            "[bold red]  │[/]                                 [bold red]│[/]\n"
-            "[bold red]  │[/]   [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]               [bold red]│[/]\n"
-            "[bold red]  │[/]   [dim]local ai · 123 commands[/]      [bold red]│[/]\n"
-            "[bold red]  │[/]                                 [bold red]│[/]\n"
-            "[bold red]  ╰─────────────────────────────────╯[/]"
-        ))
+        import random
+        # Spider crawls around the banner — random position each launch
+        spider_pos = random.choice(["top", "right", "bottom", "left"])
+
+        # Spider ASCII art pieces
+        sp = {
+            "top":    " /\\(o.o)/\\",
+            "right":  "~(o.o)>",
+            "bottom": " \\/(o.o)\\/",
+            "left":   "<(o.o)~",
+        }
+        spider = sp[spider_pos]
+
+        if spider_pos == "top":
+            console.print(Text.from_markup(
+                f"[dim]          {spider}[/]\n"
+                f"[dim]          ||[/]\n"
+                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
+                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+            ))
+        elif spider_pos == "right":
+            console.print(Text.from_markup(
+                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                f"[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/][dim]~~{spider}[/]\n"
+                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+            ))
+        elif spider_pos == "bottom":
+            console.print(Text.from_markup(
+                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
+                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ╚══════════════════════════════════════════╝[/]\n"
+                f"[dim]                       ||[/]\n"
+                f"[dim]                    {spider}[/]"
+            ))
+        else:  # left
+            console.print(Text.from_markup(
+                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                f"[dim]{spider}~~[/][bold red]║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
+                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
+                "[bold red]  ║[/]                                          [bold red]║[/]\n"
+                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+            ))
         console.print()
         console.print(Text.from_markup(
             f"  [dim]model[/]    [bright_blue]{model}[/]\n"
