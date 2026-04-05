@@ -517,8 +517,29 @@ RISKY_ACTIONS = {
     "export": "Export conversation to file",
     "connect": "Connect to a remote server",
     "train_build": "Build a custom AI model",
+    "train_collect": "Collect conversation as training data",
     "mem_clear": "Clear all AI memories",
+    "mem_save": "Save to AI memory",
     "pin_set": "Set a login PIN",
+    "save_chat": "Save conversation to disk",
+    "delete_chat": "Delete a saved conversation",
+    "model_change": "Switch AI model",
+    "persona_change": "Change AI persona",
+    "system_prompt": "Modify system prompt",
+    "broadcast": "Send message to all tools",
+    "agent_run": "Run an AI agent",
+    "swarm": "Run agent swarm pipeline",
+    "all_agents": "Ask all agents at once",
+    "race": "Race all models",
+    "team_chat": "Start team chat with AIs",
+    "compact": "Summarize and compact conversation",
+    "fork": "Fork conversation",
+    "qr": "Generate QR code with your IP",
+    "open_url": "Open a URL in browser",
+    "spotify": "Control Spotify",
+    "volume": "Change system volume",
+    "brightness": "Change screen brightness",
+    "github": "Access GitHub",
 }
 
 
@@ -4537,7 +4558,7 @@ def main():
                 continue
 
             elif cmd == "/save":
-                if messages:
+                if messages and ask_permission("save_chat", "Save conversation"):
                     save_conversation(messages, model)
                 else:
                     print_sys("Nothing to save.")
@@ -4564,7 +4585,8 @@ def main():
                 continue
 
             elif cmd == "/delete":
-                delete_conversation()
+                if ask_permission("delete_chat", "Delete a saved conversation"):
+                    delete_conversation()
                 continue
 
             elif cmd == "/copy":
@@ -4754,7 +4776,8 @@ def main():
                 continue
 
             elif cmd == "/export":
-                export_chat(messages, model, persona_name)
+                if ask_permission("export", "Export chat as markdown"):
+                    export_chat(messages, model, persona_name)
                 continue
 
             elif cmd == "/diff":
@@ -4880,6 +4903,9 @@ def main():
 
             elif cmd == "/agent":
                 args_text = user_input[len("/agent "):].strip()
+                if not args_text or not ask_permission("agent_run", args_text[:50]):
+                    if not args_text: list_agents()
+                    continue
                 parts = args_text.split(maxsplit=1)
                 if len(parts) >= 2 and parts[0] in AI_AGENTS:
                     result = run_agent(parts[0], parts[1], model)
@@ -5085,7 +5111,8 @@ def main():
                 parts = user_input[len("/github "):].strip().split(maxsplit=1)
                 sub = parts[0] if parts else ""
                 args = parts[1] if len(parts) > 1 else ""
-                github_command(sub, args)
+                if ask_permission("github", f"GitHub: {sub}"):
+                    github_command(sub, args)
                 continue
 
             elif cmd == "/weather":
@@ -5098,7 +5125,7 @@ def main():
 
             elif cmd == "/open":
                 url = user_input[len("/open "):].strip()
-                if url:
+                if url and ask_permission("open_url", url):
                     open_url(url)
                 else:
                     print_sys("Usage: /open google.com")
@@ -5106,12 +5133,13 @@ def main():
 
             elif cmd == "/spotify":
                 sub = user_input[len("/spotify "):].strip().lower()
-                spotify_command(sub)
+                if ask_permission("spotify", f"Spotify: {sub}"):
+                    spotify_command(sub)
                 continue
 
             elif cmd == "/volume":
                 level = user_input[len("/volume "):].strip()
-                if level:
+                if level and ask_permission("volume", f"Set volume to {level}"):
                     set_volume(level)
                 else:
                     print_sys("Usage: /volume 50 (range 0-100)")
@@ -5119,7 +5147,7 @@ def main():
 
             elif cmd == "/bright":
                 level = user_input[len("/bright "):].strip()
-                if level:
+                if level and ask_permission("brightness", f"Set brightness to {level}"):
                     set_brightness(level)
                 else:
                     print_sys("Usage: /bright 80 (range 0-100)")
@@ -5278,7 +5306,7 @@ def main():
 
             elif cmd == "/broadcast":
                 msg_text = user_input[len("/broadcast "):].strip()
-                if msg_text:
+                if msg_text and ask_permission("broadcast", msg_text[:50]):
                     bus_send("codegpt", "*", msg_text)
                     count = len(running_tools)
                     print_sys(f"Broadcast sent to {count} tools: {msg_text[:50]}")
@@ -6216,6 +6244,8 @@ def main():
                 continue
 
             elif cmd == "/qr":
+                if not ask_permission("qr", "Show QR code with your local IP"):
+                    continue
                 # Generate QR code with this machine's Ollama URL
                 import socket
                 try:
@@ -6400,7 +6430,7 @@ def main():
 
             elif cmd == "/system":
                 new_system = user_input[len("/system "):].strip()
-                if new_system:
+                if new_system and ask_permission("system_prompt", new_system[:50]):
                     system = new_system
                     print_sys(f"System prompt updated: {system[:60]}...")
                 else:
@@ -6409,7 +6439,7 @@ def main():
 
             elif cmd == "/model":
                 new_model = user_input[len("/model "):].strip()
-                if new_model:
+                if new_model and ask_permission("model_change", f"Switch to {new_model}"):
                     model = new_model
                     profile["model"] = model
                     save_profile(profile)
@@ -6478,7 +6508,7 @@ def main():
 
             elif cmd == "/persona":
                 new_persona = user_input[len("/persona "):].strip().lower()
-                if new_persona in PERSONAS:
+                if new_persona in PERSONAS and ask_permission("persona_change", f"Switch to {new_persona}"):
                     persona_name = new_persona
                     system = PERSONAS[persona_name]
                     profile["persona"] = persona_name
