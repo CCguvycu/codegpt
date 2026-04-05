@@ -470,6 +470,34 @@ pre:hover .copy-btn { opacity: 1; }
 .input-wrap button:hover { opacity: 0.9; } .input-wrap button:disabled { opacity: 0.3; }
 .footer { padding: 6px 20px; font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; }
 
+/* Welcome modal */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+.modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 32px 40px; max-width: 480px; width: 90%; text-align: center;
+    animation: modalIn 0.3s ease;
+}
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.modal h2 { font-size: 22px; margin-bottom: 4px; }
+.modal h2 .code { color: var(--red); } .modal h2 .gpt { color: var(--accent); }
+.modal .ver { color: var(--dim); font-size: 13px; margin-bottom: 20px; }
+.modal .features { text-align: left; margin: 16px 0; }
+.modal .feat { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 14px; }
+.modal .feat .num { color: var(--accent); font-weight: 700; min-width: 30px; }
+.modal .feat .label { color: var(--dim); }
+.modal .start-btn {
+    background: var(--accent); border: none; border-radius: 10px; color: white;
+    padding: 12px 32px; font-size: 15px; cursor: pointer; font-weight: 600;
+    margin-top: 20px; transition: opacity 0.2s;
+}
+.modal .start-btn:hover { opacity: 0.9; }
+.modal .tip { color: var(--dim); font-size: 12px; margin-top: 12px; }
+
 /* Command autocomplete */
 .cmd-menu { display: none; position: absolute; bottom: 100%; left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-height: 250px; overflow-y: auto; margin-bottom: 4px; z-index: 100; }
 .cmd-menu.show { display: block; }
@@ -537,8 +565,36 @@ pre:hover .copy-btn { opacity: 1; }
     </div>
 </div>
 
+<div class="modal-overlay" id="welcomeModal">
+    <div class="modal">
+        <h2><span class="code">Code</span><span class="gpt">GPT</span> Desktop</h2>
+        <div class="ver">v2.0 &middot; Local AI &middot; Powered by Ollama</div>
+        <div class="features">
+            <div class="feat"><span class="num">123</span> <span>commands</span> <span class="label">type / to see all</span></div>
+            <div class="feat"><span class="num">8</span> <span>AI agents</span> <span class="label">coder, reviewer, architect...</span></div>
+            <div class="feat"><span class="num">26</span> <span>tools</span> <span class="label">Claude, Codex, Gemini...</span></div>
+            <div class="feat"><span class="num">6</span> <span>personas</span> <span class="label">hacker, teacher, minimal...</span></div>
+        </div>
+        <button class="start-btn" onclick="closeWelcome()">Start Chatting</button>
+        <div class="tip">No cloud &middot; No API keys &middot; Runs locally</div>
+    </div>
+</div>
+
 <script>
 let busy = false;
+
+function closeWelcome() {
+    const m = document.getElementById('welcomeModal');
+    if (m) { m.style.opacity = '0'; setTimeout(() => m.remove(), 300); }
+    localStorage.setItem('codegpt_welcomed', '1');
+    document.getElementById('inp').focus();
+}
+
+// Auto-close if already seen
+if (localStorage.getItem('codegpt_welcomed')) {
+    const m = document.getElementById('welcomeModal');
+    if (m) m.remove();
+}
 
 async function init() {
     const name = await pywebview.api.get_username();
@@ -662,15 +718,18 @@ let cmdIdx = -1;
 function onInput(e) {
     const val = e.target.value;
     const menu = document.getElementById('cmdMenu');
-    if (val.startsWith('/')) {
+
+    // Show commands when typing / (before a space)
+    if (val.startsWith('/') && val.indexOf(' ') === -1) {
         const typed = val.toLowerCase();
-        const matches = CMDS.filter(c => c.name.startsWith(typed));
-        if (matches.length > 0 && val.indexOf(' ') === -1) {
+        // Just "/" shows all, otherwise filter
+        const matches = typed === '/' ? CMDS : CMDS.filter(c => c.name.startsWith(typed));
+        if (matches.length > 0) {
+            cmdIdx = 0;
             menu.innerHTML = matches.map((c, i) =>
                 '<div class="cmd-item'+(i===0?' sel':'')+'" onclick="pickCmd(\\''+c.name+'\\')"><span class="name">'+c.name+'</span><span class="desc">'+c.desc+'</span></div>'
             ).join('');
             menu.className = 'cmd-menu show';
-            cmdIdx = 0;
         } else {
             menu.className = 'cmd-menu';
         }
