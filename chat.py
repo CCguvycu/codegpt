@@ -5885,25 +5885,66 @@ def main():
                             ))
                             time.sleep(0.1)
 
-                    if install_ok[0] and shutil.which(tool_bin):
+                    if install_ok[0]:
                         elapsed = time.time() - start_t
-                        print_sys(f"Installed in {elapsed:.1f}s. Launching...")
-                        audit_log(f"TOOL_INSTALL", tool_key)
 
-                        tool_sandbox = Path.home() / ".codegpt" / "sandbox" / tool_key
-                        tool_sandbox.mkdir(parents=True, exist_ok=True)
-                        safe_env = os.environ.copy()
-                        for key in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY",
-                                    "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "GH_TOKEN",
-                                    "CODEGPT_BOT_TOKEN", "SSH_AUTH_SOCK"]:
-                            safe_env.pop(key, None)
+                        # Rehash PATH — find newly installed binaries
+                        for _p in [
+                            os.path.expanduser("~/.local/bin"),
+                            os.path.expanduser("~/.npm-global/bin"),
+                            "/data/data/com.termux/files/usr/bin",
+                            os.path.expanduser("~/bin"),
+                        ]:
+                            if os.path.isdir(_p) and _p not in os.environ.get("PATH", ""):
+                                os.environ["PATH"] = _p + os.pathsep + os.environ["PATH"]
 
-                        launch_cmd = [tool_bin] + tool.get("default_args", [])
-                        subprocess.run(launch_cmd, shell=True, cwd=str(tool_sandbox), env=safe_env)
-                        print_sys("Back to CodeGPT.")
-                    elif install_ok[0]:
-                        print_err(f"Installed but '{tool_bin}' not found in PATH.")
-                        print_sys("Try restarting your terminal, then run the command again.")
+                        # Try to find the binary
+                        found_bin = shutil.which(tool_bin)
+
+                        # Fallback: search common install locations
+                        if not found_bin:
+                            search_dirs = [
+                                os.path.expanduser("~/.local/bin"),
+                                os.path.expanduser("~/.npm-global/bin"),
+                                "/data/data/com.termux/files/usr/bin",
+                            ]
+                            for sd in search_dirs:
+                                candidate = os.path.join(sd, tool_bin)
+                                if os.path.isfile(candidate):
+                                    found_bin = candidate
+                                    break
+
+                        # Fallback: try python -m for pip packages
+                        pip_module_map = {
+                            "sgpt": "sgpt",
+                            "llm": "llm",
+                            "litellm": "litellm",
+                            "gorilla": "gorilla_cli",
+                            "chatgpt": "chatgpt",
+                            "aider": "aider",
+                            "interpreter": "interpreter",
+                            "gpte": "gpt_engineer",
+                            "mentat": "mentat",
+                        }
+
+                        if found_bin:
+                            print_sys(f"Installed in {elapsed:.1f}s. Launching...")
+                            audit_log(f"TOOL_INSTALL", tool_key)
+                            launch_cmd = [found_bin] + tool.get("default_args", [])
+                            subprocess.run(launch_cmd, shell=True)
+                            print_sys("Back to CodeGPT.")
+                        elif tool_bin in pip_module_map:
+                            # Try python -m fallback
+                            mod = pip_module_map[tool_bin]
+                            print_sys(f"Installed in {elapsed:.1f}s. Launching via python -m {mod}...")
+                            audit_log(f"TOOL_INSTALL", tool_key)
+                            launch_cmd = [sys.executable, "-m", mod] + tool.get("default_args", [])
+                            subprocess.run(launch_cmd)
+                            print_sys("Back to CodeGPT.")
+                        else:
+                            print_err(f"Installed but '{tool_bin}' not found in PATH.")
+                            print_sys(f"Try: which {tool_bin}")
+                            print_sys("Or restart your terminal and try again.")
                     else:
                         print_err(f"Install failed: {install_err[0]}")
                         manual = " ".join(tool["install"])
