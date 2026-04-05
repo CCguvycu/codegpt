@@ -723,6 +723,36 @@ code_exec_count = 0
 AUTO_LOCK_MINUTES = 10
 last_activity = [time.time()]
 
+# Rate limiting — prevent rapid-fire commands
+RATE_LIMIT_WINDOW = 2  # seconds
+RATE_LIMIT_MAX = 5     # max commands in window
+_cmd_timestamps = []
+
+
+def check_rate_limit():
+    """Block rapid-fire command spam. Returns True if OK."""
+    now = time.time()
+    # Remove old timestamps
+    while _cmd_timestamps and now - _cmd_timestamps[0] > RATE_LIMIT_WINDOW:
+        _cmd_timestamps.pop(0)
+    _cmd_timestamps.append(now)
+    if len(_cmd_timestamps) > RATE_LIMIT_MAX:
+        return False
+    return True
+
+
+def sanitize_input(text):
+    """Strip control characters and null bytes from user input."""
+    # Remove null bytes, control chars (except newline/tab)
+    cleaned = ""
+    for c in text:
+        if c == '\x00':
+            continue
+        if ord(c) < 32 and c not in ('\n', '\t', '\r'):
+            continue
+        cleaned += c
+    return cleaned.strip()
+
 
 def hash_pin(pin, salt=None):
     """Hash a PIN with a random salt. Returns 'salt:hash'."""
@@ -1237,111 +1267,58 @@ def print_header(model):
 
         console.print()
 
-        # Banner parts
         R = "bold red"
         B = "bold bright_blue"
         D = "dim"
 
-        # Fit to terminal width — no clipping
-        w = min(console.width - 2, 56)
-
-        # Detailed spider models for each direction
-        spiders = {
-            "top": [
-                f"[{D}]        ╱╲[/]",
-                f"[{D}]    ╱╲(o.o)╱╲[/]",
-                f"[{D}]   ╱╱  ╲╱╱  ╲╲[/]",
-                f"[{D}]        ||[/]",
-            ],
-            "right": [
-                f"[{D}]  ╱╲[/]",
-                f"[{D}] (o.o)╲~~~[/]",
-                f"[{D}]  ╲╱[/]",
-            ],
-            "bottom": [
-                f"[{D}]        ||[/]",
-                f"[{D}]   ╲╲  ╱╲╲  ╱╱[/]",
-                f"[{D}]    ╲╱(o.o)╲╱[/]",
-                f"[{D}]        ╲╱[/]",
-            ],
-            "left": [
-                f"[{D}]      ╱╲[/]",
-                f"[{D}]~~~╱(o.o)[/]",
-                f"[{D}]      ╲╱[/]",
-            ],
-        }
-
-        def build_banner(pos_name):
-            """Build banner with detailed spider at given position."""
-            # Adaptive width border
-            inner = w - 4  # inside the ║ ║
-            pad = inner - 36  # 36 = content width
-            lpad = pad // 2
-            rpad = pad - lpad
-
-            top_b = f"[{R}]  ╔{'═' * inner}╗[/]"
-            bot_b = f"[{R}]  ╚{'═' * inner}╝[/]"
-            empty = f"[{R}]  ║[/]{' ' * inner}[{R}]║[/]"
-            title = f"[{R}]  ║[/]{' ' * lpad}[{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]{' ' * (rpad + 16)}[{R}]║[/]"
-            sub   = f"[{R}]  ║[/]{' ' * lpad}[{D}]local ai · powered by ollama[/]{' ' * (rpad + 7)}[{R}]║[/]"
-            stats = f"[{R}]  ║[/]{' ' * lpad}[{B}]123[/] [{D}]cmds ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]{' ' * (rpad + 8)}[{R}]║[/]"
-
-            lines = []
-
-            if pos_name == "top":
-                for sl in spiders["top"]:
-                    lines.append(sl)
-                lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
-            elif pos_name == "right":
-                lines.extend([top_b, empty, title])
-                # Spider on right side
-                for i, sl in enumerate(spiders["right"]):
-                    if i == 0:
-                        lines.append(f"{sub}  {sl}")
-                    elif i == 1:
-                        lines.append(f"{stats}  {sl}")
-                    else:
-                        lines.append(f"{empty}  {sl}")
-                lines.append(bot_b)
-            elif pos_name == "bottom":
-                lines.extend([top_b, empty, title, sub, stats, empty, bot_b])
-                for sl in spiders["bottom"]:
-                    lines.append(sl)
-            else:  # left
-                lines.append(top_b)
-                for i, sl in enumerate(spiders["left"]):
-                    if i == 1:
-                        lines.append(f"{sl}  [{R}]║[/]{' ' * lpad}[{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]{' ' * (rpad + 16)}[{R}]║[/]")
-                    else:
-                        lines.append(f"{'  ' * 5}  {empty}")
-                lines.extend([sub, stats, empty, bot_b])
-
-            return "\n".join(lines)
-
-        # Animate spider crawling — 1 full lap, ~2 seconds
-        positions = ["top", "right", "bottom", "left"]
-        try:
-            with Live(
-                Text.from_markup(build_banner("top")),
-                console=console, refresh_per_second=4, transient=True,
-            ) as live:
-                for lap in range(2):
-                    for pos in positions:
-                        live.update(Text.from_markup(build_banner(pos)))
-                        time.sleep(0.4)
-
-            # Final position
-            import random
-            final = random.choice(positions)
-            console.print(Text.from_markup(build_banner(final)))
-        except Exception:
-            console.print(Text.from_markup(build_banner("top")))
-        console.print()
+        # Banner
         console.print(Text.from_markup(
-            f"  [dim]model[/]    [bright_blue]{model}[/]\n"
-            f"  [dim]server[/]   [green]{server}[/]\n"
-            f"  [dim]user[/]     {name}\n"
-            f"  [dim]memory[/]   {mem_count} items"
+            f"[{R}]  ╔══════════════════════════════════════════════════╗[/]\n"
+            f"[{R}]  ║[/]                                                [{R}]║[/]\n"
+            f"[{R}]  ║[/]      [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                  [{R}]║[/]\n"
+            f"[{R}]  ║[/]      [{D}]local ai · powered by ollama[/]           [{R}]║[/]\n"
+            f"[{R}]  ║[/]                                                [{R}]║[/]\n"
+            f"[{R}]  ╚══════════════════════════════════════════════════╝[/]"
+        ))
+        console.print()
+
+        # Info block — model, server, tokens, security
+        total_tok = profile.get("total_tokens", 0)
+        total_msgs = profile.get("total_messages", 0)
+        sessions = profile.get("total_sessions", 0)
+        pin_on = has_pin()
+        perms = len(PERMISSION_ALWAYS_ALLOW)
+        audit_count = 0
+        if AUDIT_FILE.exists():
+            try:
+                audit_count = len(AUDIT_FILE.read_text().strip().splitlines())
+            except Exception:
+                pass
+
+        console.print(Text.from_markup(
+            f"  [{D}]model[/]      [{B}]{model}[/]\n"
+            f"  [{D}]server[/]     [green]{server}[/]\n"
+            f"  [{D}]user[/]       {name}\n"
+            f"  [{D}]memory[/]     {mem_count} items"
+        ))
+        console.print()
+
+        # Token counter
+        console.print(Text.from_markup(
+            f"  [{D}]tokens[/]     [{B}]{total_tok:,}[/] [{D}]lifetime[/]\n"
+            f"  [{D}]messages[/]   [{B}]{total_msgs:,}[/] [{D}]across {sessions} sessions[/]"
+        ))
+        console.print()
+
+        # Security status
+        pin_status = f"[green]on[/]" if pin_on else f"[yellow]off[/] [{D}]— /pin-set to enable[/]"
+        sandbox_status = f"[green]active[/]"
+        console.print(Text.from_markup(
+            f"  [{D}]security[/]\n"
+            f"    [{D}]pin lock[/]     {pin_status}\n"
+            f"    [{D}]sandbox[/]      {sandbox_status}\n"
+            f"    [{D}]permissions[/]  [{B}]{perms}[/] [{D}]always-allowed[/]\n"
+            f"    [{D}]audit log[/]    [{B}]{audit_count}[/] [{D}]events[/]"
         ))
         console.print(Rule(style="dim", characters="─"))
         console.print()
@@ -5062,6 +5039,16 @@ def main():
             break
 
         if not user_input:
+            continue
+
+        # Sanitize input
+        user_input = sanitize_input(user_input)
+        if not user_input:
+            continue
+
+        # Rate limit
+        if user_input.startswith("/") and not check_rate_limit():
+            print_err("Slow down — too many commands. Wait a moment.")
             continue
 
         last_activity[0] = time.time()
