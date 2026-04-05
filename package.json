@@ -1,7 +1,7 @@
 {
   "name": "codegpt-ai",
-  "version": "1.28.0",
-  "description": "Local AI Assistant Hub — 80+ commands, 29 tools, 8 agents, training, security",
+  "version": "2.13.0",
+  "description": "Local AI Assistant Hub — 123 commands, 26 tools, 8 agents, multi-AI, security. No cloud needed.",
   "author": "ArukuX",
   "license": "MIT",
   "bin": {
@@ -16,9 +16,15 @@
     "ollama",
     "llm",
     "chatgpt",
+    "claude",
+    "codex",
+    "gemini",
     "terminal",
     "assistant",
-    "agents"
+    "agents",
+    "local-ai",
+    "coding",
+    "security"
   ],
   "repository": {
     "type": "git",
@@ -34,8 +40,5 @@
     "ai_cli/",
     "CLAUDE.md",
     "README.md"
-  ],
-  "dependencies": {
-    "codegpt-ai": "^1.18.0"
-  }
+  ]
 }
