@@ -1237,57 +1237,54 @@ def print_header(model):
 
         console.print()
         import random
-        # Spider crawls around the banner — random position each launch
         spider_pos = random.choice(["top", "right", "bottom", "left"])
 
-        # Spider ASCII art pieces
+        # Bigger spider
         sp = {
-            "top":    " /\\(o.o)/\\",
-            "right":  "~(o.o)>",
-            "bottom": " \\/(o.o)\\/",
-            "left":   "<(o.o)~",
+            "top":    "  /╲(o.o)╱\\",
+            "right":  "~~~(o.o)>",
+            "bottom": "  \\╱(o.o)╲/",
+            "left":   "<(o.o)~~~",
         }
         spider = sp[spider_pos]
 
+        # Banner parts
+        R = "bold red"        # Red border
+        B = "bold bright_blue" # Blue accents
+        D = "dim"
+
+        top_border    = f"[{R}]  ╔════════════════════════════════════════════════════╗[/]"
+        bot_border    = f"[{R}]  ╚════════════════════════════════════════════════════╝[/]"
+        empty_line    = f"[{R}]  ║[/]                                                    [{R}]║[/]"
+        title_line    = f"[{R}]  ║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]"
+        subtitle_line = f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/]"
+        stats_line    = f"[{R}]  ║[/]          [{B}]123[/] [{D}]commands ·[/] [{B}]26[/] [{D}]tools ·[/] [{B}]8[/] [{D}]agents[/]       [{R}]║[/]"
+
         if spider_pos == "top":
             console.print(Text.from_markup(
-                f"[dim]          {spider}[/]\n"
-                f"[dim]          ||[/]\n"
-                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
-                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+                f"[{D}]               {spider}[/]\n"
+                f"[{D}]                  ||[/]\n"
+                f"[{D}]                  ||[/]\n"
+                f"{top_border}\n{empty_line}\n{title_line}\n{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}"
             ))
         elif spider_pos == "right":
             console.print(Text.from_markup(
-                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                f"[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/][dim]~~{spider}[/]\n"
-                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+                f"{top_border}\n{empty_line}\n{title_line}\n"
+                f"[{R}]  ║[/]          [{D}]local ai · powered by ollama[/]             [{R}]║[/][{D}]~~~{spider}[/]\n"
+                f"{stats_line}\n{empty_line}\n{bot_border}"
             ))
         elif spider_pos == "bottom":
             console.print(Text.from_markup(
-                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
-                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ╚══════════════════════════════════════════╝[/]\n"
-                f"[dim]                       ||[/]\n"
-                f"[dim]                    {spider}[/]"
+                f"{top_border}\n{empty_line}\n{title_line}\n{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}\n"
+                f"[{D}]                       ||[/]\n"
+                f"[{D}]                       ||[/]\n"
+                f"[{D}]                    {spider}[/]"
             ))
         else:  # left
             console.print(Text.from_markup(
-                "[bold red]  ╔══════════════════════════════════════════╗[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                f"[dim]{spider}~~[/][bold red]║[/]        [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]                  [bold red]║[/]\n"
-                "[bold red]  ║[/]        [dim]local ai · 123 commands[/]         [bold red]║[/]\n"
-                "[bold red]  ║[/]                                          [bold red]║[/]\n"
-                "[bold red]  ╚══════════════════════════════════════════╝[/]"
+                f"{top_border}\n{empty_line}\n"
+                f"[{D}]{spider}~~~[/][{R}]║[/]          [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                    [{R}]║[/]\n"
+                f"{subtitle_line}\n{stats_line}\n{empty_line}\n{bot_border}"
             ))
         console.print()
         console.print(Text.from_markup(
