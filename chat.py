@@ -714,7 +714,8 @@ def setup_profile():
                 "  Your local AI assistant.\n"
                 "  80+ commands. 8 agents.\n"
                 "  29 tools. No cloud needed.\n\n"
-                "  Powered by [bold]Ollama[/].\n"
+                "  Powered by [bold]Ollama[/].\n\n"
+                "  [dim]Press Enter...[/]"
             ),
             border_style="bright_cyan", padding=(0, 1), width=w,
         ))
@@ -729,12 +730,24 @@ def setup_profile():
                 "  [bright_cyan]6[/]   personas (hacker, teacher, architect...)\n"
                 "  [bright_cyan]15[/]  prompt templates\n\n"
                 "  No cloud. No API keys. Powered by [bold]Ollama[/].\n\n"
-                "  [dim]Let's set up your profile — takes 10 seconds.[/]"
+                "  [dim]Press Enter to continue...[/]"
             ),
             title="[bold bright_cyan]CodeGPT v1.0[/]",
             border_style="bright_cyan", padding=(1, 2), width=w,
         ))
 
+    # Wait for Enter
+    try:
+        prompt([("class:prompt", " Press Enter to continue... ")], style=input_style)
+    except (KeyboardInterrupt, EOFError):
+        pass
+
+    clear_screen()
+    print_header(MODEL)
+    console.print(Panel(
+        Text("Let's set up your profile — takes 10 seconds.", style="bold"),
+        border_style="bright_cyan", padding=(0, 1 if compact else 2), width=w,
+    ))
     console.print()
 
     try:
@@ -760,7 +773,8 @@ def setup_profile():
                 "  Just type to chat\n"
                 "  [bright_cyan]/[/] see all commands\n"
                 "  [bright_cyan]/help[/] full guide\n"
-                "  [bright_cyan]/connect IP[/] link PC\n"
+                "  [bright_cyan]/connect IP[/] link PC\n\n"
+                "  [dim]Press Enter...[/]"
             ),
             title="[bold green]Ready[/]",
             border_style="green", padding=(0, 1), width=w,
@@ -778,11 +792,18 @@ def setup_profile():
                 "  [bright_cyan]/all question[/]    Ask all 8 agents at once\n"
                 "  [bright_cyan]/tools[/]           Browse 29 AI tools\n"
                 "  [bright_cyan]/connect IP[/]      Connect to remote Ollama\n\n"
-                "  [dim]Tip: Press / to see autocomplete suggestions.[/]"
+                "  [dim]Tip: Press / to see autocomplete suggestions.[/]\n\n"
+                "  [dim]Press Enter to start chatting...[/]"
             ),
             title="[bold green]You're all set[/]",
             border_style="green", padding=(1, 2), width=w,
         ))
+
+    # Wait for Enter before entering chat
+    try:
+        prompt([("class:prompt", " Press Enter to start... ")], style=input_style)
+    except (KeyboardInterrupt, EOFError):
+        pass
     console.print()
 
 
