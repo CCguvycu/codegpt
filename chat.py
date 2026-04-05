@@ -1169,27 +1169,29 @@ HISTORY_FILE = Path.home() / ".codegpt" / "input_history"
 
 def print_header(model):
     clear_screen()
-    w = tw()
     compact = is_compact()
-    console.print()
 
     if compact:
-        console.print(Text.from_markup(f"  [bold bright_cyan]CodeGPT[/] [dim]· {model}[/]"))
-        console.print(Rule(style="dim", characters="─"))
+        console.print(Text.from_markup(f"\n  [bold bright_cyan]CodeGPT[/] [dim]v2.0 · {model}[/]\n"))
     else:
-        console.print(Text.from_markup(LOGO_FULL))
+        # Clean startup like Claude Code — no ASCII art on repeat, just info
+        is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
+        server = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0] if "//" in OLLAMA_URL else "?"
+        profile = load_profile()
+        name = profile.get("name", "")
+        mem_count = len(load_memories())
+
         console.print()
-        now = datetime.now().strftime("%H:%M")
-        elapsed = int(time.time() - session_stats["start"])
+        console.print(Text.from_markup(f"  [bold bright_cyan]CodeGPT[/] [dim]v2.0[/]"))
+        console.print()
         console.print(Text.from_markup(
-            f"  [bright_cyan]{model}[/]"
-            f"  [dim]·[/]  [dim]{session_stats['messages']} msgs[/]"
-            f"  [dim]·[/]  [dim]{session_stats['tokens_out']} tok[/]"
-            f"  [dim]·[/]  [dim]{elapsed // 60}m[/]"
-            f"  [dim]·[/]  [dim]{now}[/]"
+            f"  [dim]model[/]    [bright_cyan]{model}[/]\n"
+            f"  [dim]server[/]   [green]{server}[/]\n"
+            f"  [dim]user[/]     {name}\n"
+            f"  [dim]memory[/]   {mem_count} items\n"
+            f"  [dim]commands[/] {len(COMMANDS)}"
         ))
-        console.print(Rule(style="dim", characters="─"))
-    console.print()
+        console.print()
 
 
 def print_welcome(model, available_models):
@@ -4739,7 +4741,11 @@ def main():
                 ollama_status = "offline"
             tool_count = sum(1 for t in AI_TOOLS.values() if shutil.which(t["bin"]))
 
-            print(f"  CodeGPT v1.0.0")
+            try:
+                from ai_cli import __version__ as _v
+            except ImportError:
+                _v = "2.0.0"
+            print(f"  CodeGPT v{_v}")
             print(f"  User:     {profile.get('name', 'not set')}")
             print(f"  Model:    {profile.get('model', MODEL)}")
             print(f"  Persona:  {profile.get('persona', 'default')}")
@@ -4867,53 +4873,19 @@ def main():
 
     print_header(model)
 
-    # Welcome popup — always show
+    # Clean welcome — like Claude Code
     if not first_time:
-        w = tw()
-        compact = is_compact()
-        name = profile.get("name", "User")
-        is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
-        server = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0] if "//" in OLLAMA_URL else "unknown"
-        model_count = len(available_models)
-        sessions = profile.get("total_sessions", 0)
-        total_msgs = profile.get("total_messages", 0)
+        name = profile.get("name", "")
+        if offline_mode:
+            console.print(Text.from_markup("  [yellow]offline[/] — use [bright_cyan]/connect IP[/] to link to Ollama"))
+            console.print()
 
-        hour = datetime.now().hour
-        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-
-        if compact:
-            if offline_mode:
-                status_line = "[yellow]offline[/] — /connect IP"
-            else:
-                status_line = f"[green]connected[/] {model_count} models"
-
-            console.print(Panel(
-                Text.from_markup(
-                    f"[bold]{greeting}, {name}![/]\n\n"
-                    f"  Model   [bright_cyan]{model}[/]\n"
-                    f"  Status  {status_line}\n"
-                    f"  Session [dim]#{sessions}[/]\n"
-                ),
-                title="[bold bright_cyan]CodeGPT[/]",
-                border_style="bright_cyan", padding=(0, 1), width=w,
-            ))
-        else:
-            if offline_mode:
-                status_line = f"  Server:   [yellow]offline[/] — use [bright_cyan]/connect IP[/] to link"
-            else:
-                status_line = f"  Server:   [green]{server}[/] ({model_count} models)"
-
-            console.print(Panel(
-                Text.from_markup(
-                    f"[bold]{greeting}, {name}![/]\n\n"
-                    f"  Model:    [bright_cyan]{model}[/]\n"
-                    f"{status_line}\n"
-                    f"  Session:  [dim]#{sessions}[/] ({total_msgs} lifetime msgs)\n\n"
-                    f"  [dim]Type / for commands · /help for full list[/]"
-                ),
-                title="[bold bright_cyan]Welcome[/]",
-                border_style="bright_cyan", padding=(1, 2), width=w,
-            ))
+        if name:
+            hour = datetime.now().hour
+            greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
+            console.print(Text(f"  {greeting}, {name}.", style="bold white"))
+        console.print(Text("  Type a message to chat. Type / for commands.", style="dim"))
+        console.print()
 
     print_welcome(model, available_models)
 
