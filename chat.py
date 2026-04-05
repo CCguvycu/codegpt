@@ -660,40 +660,91 @@ def ask_permission(action, detail=""):
     risk_color = RISK_COLORS.get(risk, "yellow")
     risk_icon = RISK_ICONS.get(risk, "?")
 
-    # Risk warnings — explain what could happen
-    risk_warnings = {
-        "CRITICAL": "This can execute code, modify your system, or expose data.",
-        "HIGH": "This accesses external services or modifies important data.",
-        "MEDIUM": "This uses resources or changes session settings.",
-        "LOW": "This is a safe operation with minimal impact.",
+    # Detailed risk info per level
+    risk_info = {
+        "CRITICAL": {
+            "warning": "Can execute code, modify files, or expose data.",
+            "examples": "shell commands, code execution, installing software",
+            "tip": "Only allow if you trust the command.",
+        },
+        "HIGH": {
+            "warning": "Accesses external services or modifies data.",
+            "examples": "opening URLs, GitHub access, deleting data",
+            "tip": "Check what it's doing before allowing.",
+        },
+        "MEDIUM": {
+            "warning": "Uses resources or changes settings.",
+            "examples": "running agents, saving files, training models",
+            "tip": "Generally safe for normal use.",
+        },
+        "LOW": {
+            "warning": "Safe operation with minimal impact.",
+            "examples": "switching model, changing persona, forking chat",
+            "tip": "Low risk — consider always-allowing.",
+        },
     }
-    warning = risk_warnings.get(risk, "")
+    info = risk_info.get(risk, risk_info["MEDIUM"])
+    compact = is_compact()
 
-    # Clean minimal prompt — like Claude Code
+    # Permission prompt with full context
     console.print()
-    console.print(Text.from_markup(f"  [{risk_color}]{risk_icon} {action_desc}[/]"))
+    console.print(Rule(style=risk_color.replace("bold ", ""), characters="─"))
+    console.print()
+    console.print(Text.from_markup(f"  [{risk_color}]{risk_icon} {risk}[/]  [{risk_color}]{action_desc}[/]"))
+    console.print()
     if detail:
-        console.print(Text(f"    {detail[:70]}", style="dim"))
-    console.print(Text.from_markup(f"    [{risk_color}]{risk} — {warning}[/]"))
+        console.print(Text.from_markup(f"    [bright_cyan]what:[/]  {detail[:70]}"))
+    if not compact:
+        console.print(Text.from_markup(f"    [dim]risk:[/]  {info['warning']}"))
+        console.print(Text.from_markup(f"    [dim]e.g.:[/]  {info['examples']}"))
+        console.print(Text.from_markup(f"    [dim]tip:[/]   {info['tip']}"))
+    else:
+        console.print(Text.from_markup(f"    [{risk_color}]{info['warning']}[/]"))
     console.print()
 
     try:
         answer = prompt(
-            [("class:prompt", "  Allow? (y)es / (n)o / (a)lways > ")],
+            [("class:prompt", "  (y)es  (n)o  (a)lways  (?) info > ")],
             style=input_style,
         ).strip().lower()
     except (KeyboardInterrupt, EOFError):
+        audit_log("PERMISSION_DENIED", f"{action}: interrupted")
         return False
+
+    if answer in ("?", "info", "help"):
+        # Show detailed info then re-ask
+        console.print()
+        console.print(Text.from_markup(
+            f"  [bold]Action:[/]   {action_desc}\n"
+            f"  [bold]Risk:[/]     [{risk_color}]{risk}[/]\n"
+            f"  [bold]Warning:[/]  {info['warning']}\n"
+            f"  [bold]Examples:[/] {info['examples']}\n"
+            f"  [bold]Tip:[/]      {info['tip']}\n\n"
+            f"  [dim]What each option does:[/]\n"
+            f"    [bright_cyan]y[/]  Allow this one time\n"
+            f"    [bright_cyan]n[/]  Block this action\n"
+            f"    [bright_cyan]a[/]  Always allow (saved, never asked again)\n"
+        ))
+        try:
+            answer = prompt(
+                [("class:prompt", "  Allow? (y/n/a) > ")],
+                style=input_style,
+            ).strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            return False
 
     if answer in ("a", "always"):
         PERMISSION_ALWAYS_ALLOW.add(action)
         save_permissions()
-        console.print(Text(f"  ✓ Always allowed", style="green"))
+        console.print(Text(f"  ✓ Always allowed — {action_desc}", style="green"))
+        audit_log("PERMISSION_ALWAYS", action)
         return True
     elif answer in ("y", "yes", ""):
+        audit_log("PERMISSION_GRANTED", action)
         return True
     else:
-        print_sys("Denied.")
+        console.print(Text(f"  ✗ Blocked — {action_desc}", style="red"))
+        audit_log("PERMISSION_DENIED", action)
         return False
 
 
