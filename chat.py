@@ -223,7 +223,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "@openai/codex"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
-        "termux": False,
+        "termux": True,  # Has linux-arm64 build
     },
     "gemini": {
         "name": "Gemini CLI",
@@ -232,16 +232,17 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "@google/gemini-cli"],
         "default_args": [],
         "needs_key": "Google login",
-        "termux": False,
+        "termux": True,  # Pure JS, no native deps
     },
     "copilot": {
         "name": "GitHub Copilot",
         "desc": "AI pair programmer in terminal",
         "bin": "gh",
         "install": ["gh", "extension", "install", "github/gh-copilot"],
+        "install_termux": ["pkg", "install", "-y", "gh"],
         "default_args": ["copilot"],
         "needs_key": "GitHub login",
-        "termux": False,
+        "termux": True,  # gh available via pkg
     },
     "gpt4all": {
         "name": "GPT4All",
@@ -259,7 +260,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "cursor-cli"],
         "default_args": [],
         "needs_key": "Cursor account",
-        "termux": False,
+        "termux": True,  # Pure JS
     },
     # --- Deploy CLIs (work everywhere) ---
     "vercel": {
