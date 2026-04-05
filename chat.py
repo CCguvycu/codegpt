@@ -223,7 +223,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "@openai/codex"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
-        "termux": True,  # Has linux-arm64 build
+        "termux": False,  # ARM64 build fails on Termux
     },
     "gemini": {
         "name": "Gemini CLI",
@@ -5833,11 +5833,14 @@ def main():
                             )
                             install_ok[0] = r.returncode == 0
                             if not install_ok[0]:
-                                install_err[0] = r.stderr[:200] if r.stderr else "Unknown"
+                                # Show both stderr and stdout for better debugging
+                                err = r.stderr.strip() if r.stderr else ""
+                                out = r.stdout.strip() if r.stdout else ""
+                                install_err[0] = err[:300] or out[:300] or f"Exit code {r.returncode}"
                         except subprocess.TimeoutExpired:
                             install_err[0] = "Timed out (5min)"
                         except Exception as e:
-                            install_err[0] = str(e)
+                            install_err[0] = str(e)[:300]
                         install_done[0] = True
 
                     thr = threading.Thread(target=do_tool_install, daemon=True)
