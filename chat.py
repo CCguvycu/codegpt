@@ -64,23 +64,7 @@ Goal:
 Deliver high-value, efficient, technically sharp responses with zero wasted words."""
 
 AI_TOOLS = {
-    # VERIFIED — these all have correct package names and working CLIs
-    "aider": {
-        "name": "Aider",
-        "desc": "AI pair programmer — edits your code",
-        "bin": "aider",
-        "install": ["pip", "install", "aider-chat"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
-    },
-    "interpreter": {
-        "name": "Open Interpreter",
-        "desc": "AI that runs code on your machine",
-        "bin": "interpreter",
-        "install": ["pip", "install", "open-interpreter"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY (or use --local for Ollama)",
-    },
+    # --- Works everywhere (pip — pure Python) ---
     "shellgpt": {
         "name": "ShellGPT",
         "desc": "AI assistant in your shell",
@@ -88,47 +72,61 @@ AI_TOOLS = {
         "install": ["pip", "install", "shell-gpt"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
+        "termux": True,
     },
-    "opencode": {
-        "name": "OpenCode",
-        "desc": "AI coding agent — terminal IDE",
-        "bin": "opencode",
-        "install": ["npm", "i", "-g", "opencode-ai"],
+    "llm": {
+        "name": "LLM",
+        "desc": "Simon Willison's multi-model CLI",
+        "bin": "llm",
+        "install": ["pip", "install", "llm"],
+        "default_args": ["chat"],
+        "needs_key": "OPENAI_API_KEY (or plugins)",
+        "termux": True,
+    },
+    "litellm": {
+        "name": "LiteLLM",
+        "desc": "Unified API for 100+ models",
+        "bin": "litellm",
+        "install": ["pip", "install", "litellm"],
         "default_args": [],
-        "needs_key": "ANTHROPIC_API_KEY or OPENAI_API_KEY",
-        "platforms": ["win32", "linux", "darwin"],  # No ARM/Termux
+        "needs_key": "Any provider key",
+        "termux": True,
     },
-    "codex": {
-        "name": "Codex",
-        "desc": "OpenAI's coding agent CLI",
-        "bin": "codex",
-        "install": ["npm", "i", "-g", "@openai/codex"],
+    "gorilla": {
+        "name": "Gorilla CLI",
+        "desc": "AI generates CLI commands from English",
+        "bin": "gorilla",
+        "install": ["pip", "install", "gorilla-cli"],
+        "default_args": [],
+        "needs_key": "None — free API",
+        "termux": True,
+    },
+    "chatgpt": {
+        "name": "ChatGPT CLI",
+        "desc": "Official ChatGPT in terminal",
+        "bin": "chatgpt",
+        "install": ["pip", "install", "chatgpt"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
+        "termux": True,
     },
-    "gemini": {
-        "name": "Gemini CLI",
-        "desc": "Google's AI coding CLI",
-        "bin": "gemini",
-        "install": ["npm", "i", "-g", "@google/gemini-cli"],
+    "aider": {
+        "name": "Aider",
+        "desc": "AI pair programmer — edits your code",
+        "bin": "aider",
+        "install": ["pip", "install", "aider-chat"],
         "default_args": [],
-        "needs_key": "Google login (browser auth)",
+        "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
+        "termux": True,
     },
-    "copilot": {
-        "name": "GitHub Copilot",
-        "desc": "AI pair programmer in terminal",
-        "bin": "gh",
-        "install": ["gh", "extension", "install", "github/gh-copilot"],
-        "default_args": ["copilot"],
-        "needs_key": "GitHub login (already authed via gh)",
-    },
-    "cline": {
-        "name": "Cline",
-        "desc": "Autonomous AI coding agent",
-        "bin": "cline",
-        "install": ["npm", "i", "-g", "cline"],
+    "interpreter": {
+        "name": "Open Interpreter",
+        "desc": "AI that runs code on your machine",
+        "bin": "interpreter",
+        "install": ["pip", "install", "open-interpreter"],
         "default_args": [],
-        "needs_key": "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+        "needs_key": "OPENAI_API_KEY (or --local)",
+        "termux": True,
     },
     "gpt-engineer": {
         "name": "GPT Engineer",
@@ -137,6 +135,7 @@ AI_TOOLS = {
         "install": ["pip", "install", "gpt-engineer"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
+        "termux": True,
     },
     "mentat": {
         "name": "Mentat",
@@ -145,16 +144,56 @@ AI_TOOLS = {
         "install": ["pip", "install", "mentat"],
         "default_args": [],
         "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
+        "termux": True,
     },
+    # --- Works everywhere (npm — pure JS) ---
+    "opencommit": {
+        "name": "OpenCommit",
+        "desc": "AI writes your git commit messages",
+        "bin": "opencommit",
+        "install": ["npm", "i", "-g", "opencommit"],
+        "default_args": [],
+        "needs_key": "OPENAI_API_KEY",
+        "termux": True,
+    },
+    "ai-shell": {
+        "name": "AI Shell",
+        "desc": "Natural language to shell commands",
+        "bin": "ai",
+        "install": ["npm", "i", "-g", "ai-shell"],
+        "default_args": [],
+        "needs_key": "OPENAI_API_KEY",
+        "termux": True,
+    },
+    "aipick": {
+        "name": "AIPick",
+        "desc": "AI-powered git commit selector",
+        "bin": "aipick",
+        "install": ["npm", "i", "-g", "aipick"],
+        "default_args": [],
+        "needs_key": "OPENAI_API_KEY",
+        "termux": True,
+    },
+    "cline": {
+        "name": "Cline",
+        "desc": "Autonomous AI coding agent",
+        "bin": "cline",
+        "install": ["npm", "i", "-g", "cline"],
+        "default_args": [],
+        "needs_key": "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+        "termux": True,
+    },
+    # --- Platform tools (pkg on Termux, winget on Windows) ---
     "ollama": {
         "name": "Ollama",
-        "desc": "Run local LLMs (already installed)",
+        "desc": "Run local LLMs",
         "bin": "ollama",
         "install": ["pip", "install", "ollama"],
         "install_termux": ["pkg", "install", "-y", "ollama"],
         "install_win": ["winget", "install", "Ollama.Ollama"],
         "default_args": ["run", "llama3.2"],
-        "needs_key": "None — runs locally",
+        "needs_key": "None — local",
+        "termux": True,
     },
     "jq": {
         "name": "jq",
@@ -165,14 +204,44 @@ AI_TOOLS = {
         "install_win": ["winget", "install", "jqlang.jq"],
         "default_args": [],
         "needs_key": "None",
+        "termux": True,
     },
-    "llm": {
-        "name": "LLM",
-        "desc": "Simon Willison's multi-model CLI",
-        "bin": "llm",
-        "install": ["pip", "install", "llm"],
-        "default_args": ["chat"],
-        "needs_key": "OPENAI_API_KEY (or plugins for others)",
+    # --- Desktop/x86 only (native binaries, no ARM) ---
+    "opencode": {
+        "name": "OpenCode",
+        "desc": "AI coding agent — terminal IDE",
+        "bin": "opencode",
+        "install": ["npm", "i", "-g", "opencode-ai"],
+        "default_args": [],
+        "needs_key": "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+        "termux": False,
+    },
+    "codex": {
+        "name": "Codex",
+        "desc": "OpenAI's coding agent CLI",
+        "bin": "codex",
+        "install": ["npm", "i", "-g", "@openai/codex"],
+        "default_args": [],
+        "needs_key": "OPENAI_API_KEY",
+        "termux": False,
+    },
+    "gemini": {
+        "name": "Gemini CLI",
+        "desc": "Google's AI coding CLI",
+        "bin": "gemini",
+        "install": ["npm", "i", "-g", "@google/gemini-cli"],
+        "default_args": [],
+        "needs_key": "Google login",
+        "termux": False,
+    },
+    "copilot": {
+        "name": "GitHub Copilot",
+        "desc": "AI pair programmer in terminal",
+        "bin": "gh",
+        "install": ["gh", "extension", "install", "github/gh-copilot"],
+        "default_args": ["copilot"],
+        "needs_key": "GitHub login",
+        "termux": False,
     },
     "gpt4all": {
         "name": "GPT4All",
@@ -180,47 +249,8 @@ AI_TOOLS = {
         "bin": "gpt4all",
         "install": ["pip", "install", "gpt4all"],
         "default_args": [],
-        "needs_key": "None — fully offline",
-    },
-    "litellm": {
-        "name": "LiteLLM",
-        "desc": "Unified API for 100+ models",
-        "bin": "litellm",
-        "install": ["pip", "install", "litellm"],
-        "default_args": [],
-        "needs_key": "Any provider key",
-    },
-    "opencommit": {
-        "name": "OpenCommit",
-        "desc": "AI writes your git commit messages",
-        "bin": "opencommit",
-        "install": ["npm", "i", "-g", "opencommit"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY",
-    },
-    "ai-shell": {
-        "name": "AI Shell",
-        "desc": "Natural language to shell commands",
-        "bin": "ai",
-        "install": ["npm", "i", "-g", "ai-shell"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY",
-    },
-    "gorilla": {
-        "name": "Gorilla CLI",
-        "desc": "AI generates CLI commands from English",
-        "bin": "gorilla",
-        "install": ["pip", "install", "gorilla-cli"],
-        "default_args": [],
-        "needs_key": "None — free API",
-    },
-    "chatgpt": {
-        "name": "ChatGPT CLI",
-        "desc": "Official ChatGPT in terminal",
-        "bin": "chatgpt",
-        "install": ["pip", "install", "chatgpt"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY",
+        "needs_key": "None — offline",
+        "termux": False,
     },
     "cursor": {
         "name": "Cursor CLI",
@@ -229,24 +259,9 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "cursor-cli"],
         "default_args": [],
         "needs_key": "Cursor account",
+        "termux": False,
     },
-    "aipick": {
-        "name": "AIPick",
-        "desc": "AI-powered git commit selector",
-        "bin": "aipick",
-        "install": ["npm", "i", "-g", "aipick"],
-        "default_args": [],
-        "needs_key": "OPENAI_API_KEY",
-    },
-    "ollama-py": {
-        "name": "Ollama Python",
-        "desc": "Ollama Python client CLI",
-        "bin": "ollama",
-        "install": ["pip", "install", "ollama"],
-        "default_args": ["run", "llama3.2"],
-        "needs_key": "None — local",
-    },
-    # --- Dev & Deploy CLIs ---
+    # --- Deploy CLIs (work everywhere) ---
     "vercel": {
         "name": "Vercel",
         "desc": "Deploy frontend apps",
@@ -254,6 +269,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "vercel"],
         "default_args": [],
         "needs_key": "Vercel account",
+        "termux": True,
     },
     "netlify": {
         "name": "Netlify",
@@ -262,6 +278,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "netlify-cli"],
         "default_args": [],
         "needs_key": "Netlify account",
+        "termux": True,
     },
     "supabase": {
         "name": "Supabase",
@@ -270,6 +287,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "supabase"],
         "default_args": [],
         "needs_key": "Supabase account",
+        "termux": True,
     },
     "railway": {
         "name": "Railway",
@@ -278,6 +296,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "@railway/cli"],
         "default_args": [],
         "needs_key": "Railway account",
+        "termux": True,
     },
     "wrangler": {
         "name": "Wrangler",
@@ -286,6 +305,7 @@ AI_TOOLS = {
         "install": ["npm", "i", "-g", "wrangler"],
         "default_args": [],
         "needs_key": "Cloudflare account",
+        "termux": True,
     },
 }
 
@@ -5513,7 +5533,11 @@ def main():
                 table.add_column("Safe", width=7)
                 coding_tools = ["codex", "opencode", "cline", "aider", "mentat",
                                 "gpt-engineer", "interpreter", "copilot"]
+                on_termux = os.path.exists("/data/data/com.termux")
                 for cmd_name, info in AI_TOOLS.items():
+                    # Skip unsupported tools on Termux
+                    if on_termux and not info.get("termux", True):
+                        continue
                     installed = shutil.which(info["bin"]) is not None
                     status = "[green]ready[/]" if installed else "[dim]—[/]"
                     needs = info.get("needs_key", "")
@@ -5619,14 +5643,10 @@ def main():
                 else:
                     # Check platform support
                     is_termux = os.path.exists("/data/data/com.termux")
-                    platforms = tool.get("platforms")
-                    if platforms:
-                        if is_termux and "termux" not in platforms and "linux" not in platforms:
-                            print_err(f"{tool['name']} doesn't support Termux/ARM.")
-                            continue
-                        elif sys.platform not in platforms and not is_termux:
-                            print_err(f"{tool['name']} doesn't support this platform.")
-                            continue
+                    if is_termux and not tool.get("termux", True):
+                        print_err(f"{tool['name']} doesn't support Termux/ARM.")
+                        print_sys("Use a desktop/PC for this tool.")
+                        continue
 
                     print_sys(f"Installing {tool['name']}...")
 
