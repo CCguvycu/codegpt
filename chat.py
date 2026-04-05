@@ -4222,40 +4222,53 @@ def main():
 
     print_header(model)
 
-    # Welcome popup
-    if first_time:
-        pass  # Setup wizard already shown
-    elif offline_mode:
+    # Welcome popup — always show
+    if not first_time:
         w = tw()
         compact = is_compact()
         name = profile.get("name", "User")
+        is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
+        server = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0] if "//" in OLLAMA_URL else "unknown"
+        model_count = len(available_models)
+        sessions = profile.get("total_sessions", 0)
+        total_msgs = profile.get("total_messages", 0)
+
+        hour = datetime.now().hour
+        greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
 
         if compact:
+            if offline_mode:
+                status_line = "[yellow]offline[/] — /connect IP"
+            else:
+                status_line = f"[green]connected[/] {model_count} models"
+
             console.print(Panel(
                 Text.from_markup(
-                    f"[bold]Hey {name}![/]\n\n"
-                    f"  [dim]Offline mode[/]\n"
-                    f"  [dim]Use /connect IP[/]\n"
-                    f"  [dim]to link your PC[/]\n"
+                    f"[bold]{greeting}, {name}![/]\n\n"
+                    f"  Model   [bright_cyan]{model}[/]\n"
+                    f"  Status  {status_line}\n"
+                    f"  Session [dim]#{sessions}[/]\n"
                 ),
-                title="[bold bright_cyan]Welcome[/]",
+                title="[bold bright_cyan]CodeGPT[/]",
                 border_style="bright_cyan", padding=(0, 1), width=w,
             ))
         else:
+            if offline_mode:
+                status_line = f"  Server:   [yellow]offline[/] — use [bright_cyan]/connect IP[/] to link"
+            else:
+                status_line = f"  Server:   [green]{server}[/] ({model_count} models)"
+
             console.print(Panel(
                 Text.from_markup(
-                    f"[bold]Welcome back, {name}![/]\n\n"
-                    f"  Status:  [yellow]offline[/] — no Ollama found\n"
-                    f"  Fix:     [bright_cyan]/connect YOUR_PC_IP[/]\n\n"
-                    f"  [dim]All commands work. AI responses need a connection.[/]"
+                    f"[bold]{greeting}, {name}![/]\n\n"
+                    f"  Model:    [bright_cyan]{model}[/]\n"
+                    f"{status_line}\n"
+                    f"  Session:  [dim]#{sessions}[/] ({total_msgs} lifetime msgs)\n\n"
+                    f"  [dim]Type / for commands · /help for full list[/]"
                 ),
                 title="[bold bright_cyan]Welcome[/]",
                 border_style="bright_cyan", padding=(1, 2), width=w,
             ))
-    else:
-        name = profile.get("name", "")
-        if name:
-            console.print(Align.center(Text(f"Welcome back, {name}.\n", style="bold white")), width=tw())
 
     print_welcome(model, available_models)
 
