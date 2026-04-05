@@ -609,32 +609,27 @@ def ask_permission(action, detail=""):
 
     risk_color = RISK_COLORS.get(risk, "yellow")
     risk_icon = RISK_ICONS.get(risk, "?")
-    compact = is_compact()
 
-    if compact:
-        console.print(Panel(
-            Text.from_markup(
-                f"[{risk_color}]{risk_icon} {risk}[/]\n"
-                f"  {action_desc}\n"
-                + (f"  [dim]{detail[:35]}[/]\n" if detail else "")
-            ),
-            border_style=risk_color.replace("bold ", ""), padding=(0, 1), width=tw(),
-        ))
-    else:
-        console.print(Panel(
-            Text.from_markup(
-                f"[{risk_color}]{risk_icon} Risk: {risk}[/]\n\n"
-                f"  Action: [bright_cyan]{action_desc}[/]\n"
-                + (f"  Detail: [dim]{detail[:60]}[/]\n" if detail else "")
-                + f"\n  [dim](y)es  (n)o  (a)lways allow this[/]"
-            ),
-            title=f"[{risk_color}]Permission[/]",
-            border_style=risk_color.replace("bold ", ""), padding=(0, 2), width=tw(),
-        ))
+    # Risk warnings — explain what could happen
+    risk_warnings = {
+        "CRITICAL": "This can execute code, modify your system, or expose data.",
+        "HIGH": "This accesses external services or modifies important data.",
+        "MEDIUM": "This uses resources or changes session settings.",
+        "LOW": "This is a safe operation with minimal impact.",
+    }
+    warning = risk_warnings.get(risk, "")
+
+    # Clean minimal prompt — like Claude Code
+    console.print()
+    console.print(Text.from_markup(f"  [{risk_color}]{risk_icon} {action_desc}[/]"))
+    if detail:
+        console.print(Text(f"    {detail[:70]}", style="dim"))
+    console.print(Text.from_markup(f"    [{risk_color}]{risk} — {warning}[/]"))
+    console.print()
 
     try:
         answer = prompt(
-            [("class:prompt", " Allow? (y/n/a) > ")],
+            [("class:prompt", "  Allow? (y)es / (n)o / (a)lways > ")],
             style=input_style,
         ).strip().lower()
     except (KeyboardInterrupt, EOFError):
@@ -643,9 +638,9 @@ def ask_permission(action, detail=""):
     if answer in ("a", "always"):
         PERMISSION_ALWAYS_ALLOW.add(action)
         save_permissions()
-        print_sys(f"Always allowed: {action_desc}")
+        console.print(Text(f"  ✓ Always allowed", style="green"))
         return True
-    elif answer in ("y", "yes"):
+    elif answer in ("y", "yes", ""):
         return True
     else:
         print_sys("Denied.")
@@ -1279,13 +1274,38 @@ def _print_err_panel(text):
 
 
 def print_help():
-    table = Table(border_style="bright_black", show_header=True,
-                  header_style="bold bright_cyan", padding=(0, 2))
-    table.add_column("Command", style="bright_cyan", min_width=12)
-    table.add_column("Description", style="dim")
-    for cmd, desc in COMMANDS.items():
-        table.add_row(cmd, desc)
-    console.print(table)
+    # Group commands by category — clean minimal list
+    categories = {
+        "Chat": ["/new", "/save", "/load", "/delete", "/copy", "/regen", "/edit", "/history", "/clear", "/quit"],
+        "Model": ["/model", "/modelinfo", "/params", "/temp", "/think", "/tokens", "/compact"],
+        "AI": ["/agent", "/agents", "/all", "/vote", "/swarm", "/team", "/room", "/spectate", "/dm", "/chat-link"],
+        "Lab": ["/lab", "/chain", "/race", "/prompts"],
+        "Tools": ["/tools", "/bg", "/split", "/grid", "/running", "/killall"],
+        "Connect": ["/connect", "/disconnect", "/server", "/qr", "/scan"],
+        "Files": ["/file", "/run", "/code", "/shell", "/browse", "/open", "/export"],
+        "Memory": ["/mem", "/train", "/pin", "/pins", "/search", "/fork", "/rate", "/tag"],
+        "Profile": ["/profile", "/setname", "/setbio", "/persona", "/personas", "/usage"],
+        "Skills": ["/skill", "/skills", "/auto", "/cron", "/crons"],
+        "Comms": ["/broadcast", "/inbox", "/feed", "/monitor", "/hub"],
+        "System": ["/github", "/weather", "/spotify", "/volume", "/bright", "/sysinfo"],
+        "Security": ["/pin-set", "/pin-remove", "/lock", "/audit", "/security", "/permissions"],
+    }
+
+    on_termux = os.path.exists("/data/data/com.termux")
+
+    for cat, cmds in categories.items():
+        console.print(Text(f"\n  {cat}", style="bold bright_cyan"))
+        for cmd in cmds:
+            desc = COMMANDS.get(cmd, "")
+            if not desc:
+                continue
+            # Hide unsupported tool commands on Termux
+            tool_name = cmd[1:]
+            if on_termux and tool_name in AI_TOOLS and not AI_TOOLS[tool_name].get("termux", True):
+                continue
+            console.print(Text.from_markup(f"    [bright_cyan]{cmd:<16}[/] [dim]{desc}[/]"))
+
+    console.print(Text("\n  Type / to autocomplete. Aliases: /q /n /s /m /h /a /t /f", style="dim"))
     console.print()
 
 
@@ -2443,8 +2463,24 @@ def open_url(url):
     elif not url.startswith("http"):
         url = "https://" + url
 
-    webbrowser.open(url)
-    print_sys(f"Opened: {url}")
+    # Platform-specific browser open
+    try:
+        if os.path.exists("/data/data/com.termux"):
+            # Termux — use termux-open or am start
+            try:
+                subprocess.run(["termux-open-url", url], timeout=5)
+            except FileNotFoundError:
+                subprocess.run(["am", "start", "-a", "android.intent.action.VIEW", "-d", url], timeout=5)
+        elif os.name == "nt":
+            os.startfile(url)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", url], timeout=5)
+        else:
+            webbrowser.open(url)
+        print_sys(f"Opened: {url}")
+    except Exception as e:
+        print_err(f"Cannot open browser: {e}")
+        print_sys(f"URL: {url}")
     audit_log("OPEN_URL", url)
 
 
@@ -6977,21 +7013,23 @@ def main():
                     save_permissions()
                     print_sys("All permissions reset. You'll be asked again.")
                 else:
-                    table = Table(title="Permissions", border_style="yellow",
-                                  title_style="bold yellow", show_header=True, header_style="bold")
-                    table.add_column("Action", style="bright_cyan", width=16)
-                    table.add_column("Description", style="dim")
-                    table.add_column("Risk", width=10)
-                    table.add_column("Status", width=10)
-                    for action, info in RISKY_ACTIONS.items():
-                        if isinstance(info, tuple):
-                            desc, risk = info
-                        else:
-                            desc, risk = info, "MEDIUM"
-                        rc = RISK_COLORS.get(risk, "yellow")
-                        ri = RISK_ICONS.get(risk, "?")
-                        status = "[green]allowed[/]" if action in PERMISSION_ALWAYS_ALLOW else "[yellow]ask[/]"
-                        table.add_row(action, desc, f"[{rc}]{ri} {risk}[/]", status)
+                    console.print(Text("\n  Permissions", style="bold"))
+                    console.print(Rule(style="dim", characters="─"))
+
+                    # Group by risk level
+                    for risk_level in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                        rc = RISK_COLORS.get(risk_level, "yellow")
+                        ri = RISK_ICONS.get(risk_level, "?")
+                        console.print(Text.from_markup(f"\n  [{rc}]{ri} {risk_level}[/]"))
+                        for action, info in RISKY_ACTIONS.items():
+                            if isinstance(info, tuple):
+                                desc, risk = info
+                            else:
+                                desc, risk = info, "MEDIUM"
+                            if risk != risk_level:
+                                continue
+                            status = "[green]✓ allowed[/]" if action in PERMISSION_ALWAYS_ALLOW else "[dim]ask[/]"
+                            console.print(Text.from_markup(f"    {action:<16} {status}  [dim]{desc}[/]"))
                     console.print(table)
                     console.print(Text("  /permissions reset — revoke all", style="dim"))
                     console.print()
