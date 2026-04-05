@@ -1222,9 +1222,13 @@ def print_header(model):
     compact = is_compact()
 
     if compact:
-        console.print(Text.from_markup(f"\n  [bold bright_cyan]CodeGPT[/] [dim]v2.0 · {model}[/]\n"))
+        console.print()
+        console.print(Text.from_markup(
+            f"  [bold red]Code[/][bold bright_blue]GPT[/] [dim]v2.0 · {model}[/]"
+        ))
+        console.print(Rule(style="dim", characters="─"))
+        console.print()
     else:
-        # Clean startup like Claude Code — no ASCII art on repeat, just info
         is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
         server = "local" if is_local else OLLAMA_URL.split("//")[1].split("/")[0] if "//" in OLLAMA_URL else "?"
         profile = load_profile()
@@ -1232,15 +1236,23 @@ def print_header(model):
         mem_count = len(load_memories())
 
         console.print()
-        console.print(Text.from_markup(f"  [bold bright_cyan]CodeGPT[/] [dim]v2.0[/]"))
+        # Claude Code style banner — red and blue
+        console.print(Text.from_markup(
+            "[bold red]  ╭─────────────────────────────────╮[/]\n"
+            "[bold red]  │[/]                                 [bold red]│[/]\n"
+            "[bold red]  │[/]   [bold red]Code[/][bold bright_blue]GPT[/]  [dim]v2.0[/]               [bold red]│[/]\n"
+            "[bold red]  │[/]   [dim]local ai · 123 commands[/]      [bold red]│[/]\n"
+            "[bold red]  │[/]                                 [bold red]│[/]\n"
+            "[bold red]  ╰─────────────────────────────────╯[/]"
+        ))
         console.print()
         console.print(Text.from_markup(
-            f"  [dim]model[/]    [bright_cyan]{model}[/]\n"
+            f"  [dim]model[/]    [bright_blue]{model}[/]\n"
             f"  [dim]server[/]   [green]{server}[/]\n"
             f"  [dim]user[/]     {name}\n"
-            f"  [dim]memory[/]   {mem_count} items\n"
-            f"  [dim]commands[/] {len(COMMANDS)}"
+            f"  [dim]memory[/]   {mem_count} items"
         ))
+        console.print(Rule(style="dim", characters="─"))
         console.print()
 
 
