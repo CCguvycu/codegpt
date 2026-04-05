@@ -2986,8 +2986,12 @@ def build_codegpt_context(messages=None):
         "pipe_dir": str(MSG_PIPE_DIR),
         "unread_messages": bus_unread("codegpt"),
 
+        # Tool roles
+        "tool_roles": TOOL_ROLES,
+
         "instructions": (
             "You are connected to CodeGPT, a local AI assistant hub. "
+            "Check $CODEGPT_TOOL_ROLE for your specific job. "
             "The user's name is shown above. Their memories contain persistent context. "
             "Recent messages show what they were discussing before launching you. "
             "Project files are Python source in the project_dir. "
@@ -3003,11 +3007,37 @@ def build_codegpt_context(messages=None):
     return context_file
 
 
+# Tool role descriptions — what each tool's job is when launched from CodeGPT
+TOOL_ROLES = {
+    "claude": "You are Claude Code, the primary coding assistant. Edit files, run commands, debug code. You have full access to the CodeGPT project.",
+    "openclaw": "You are OpenClaw, a personal AI assistant. Help with tasks, answer questions, manage workflows. You're running inside CodeGPT's sandbox.",
+    "codex": "You are Codex, OpenAI's coding agent. Write and edit code, fix bugs, refactor. You have access to the CodeGPT project files.",
+    "gemini": "You are Gemini CLI, Google's AI. Help with coding, research, and analysis. You have access to the CodeGPT project.",
+    "copilot": "You are GitHub Copilot. Suggest code completions, write functions, help with git workflows.",
+    "cline": "You are Cline, an autonomous coding agent. Plan and implement features, fix bugs, refactor code across multiple files.",
+    "aider": "You are Aider, an AI pair programmer. Edit files based on user instructions. Focus on clean, working code changes.",
+    "interpreter": "You are Open Interpreter. Run code, install packages, manage files. Execute the user's instructions step by step.",
+    "shellgpt": "You are ShellGPT. Generate shell commands from natural language. Be precise and safe.",
+    "opencode": "You are OpenCode, a terminal IDE. Help write, edit, and manage code projects.",
+    "llm": "You are LLM CLI. Chat with various AI models. Help the user with questions and tasks.",
+    "litellm": "You are LiteLLM. Provide a unified interface to 100+ AI models. Help route requests to the best model.",
+    "gorilla": "You are Gorilla CLI. Generate accurate CLI commands from natural language descriptions.",
+    "chatgpt": "You are ChatGPT CLI. Have helpful conversations, answer questions, write content.",
+    "opencommit": "You are OpenCommit. Generate clear, descriptive git commit messages from staged changes.",
+    "aipick": "You are AIPick. Help select and craft the best git commits with AI assistance.",
+    "cursor": "You are Cursor CLI. Help with code editing, navigation, and AI-powered development.",
+}
+
+
 def build_tool_env(tool_name):
     """Build environment variables for a launched tool."""
     project_dir = str(Path(__file__).parent)
     env = os.environ.copy()
     profile = load_profile()
+
+    # Tool's specific role/job
+    role = TOOL_ROLES.get(tool_name, f"You are {tool_name}, launched from CodeGPT. Help the user with their task.")
+    tool_info = AI_TOOLS.get(tool_name, {})
 
     # Inject CodeGPT context into every tool
     env["CODEGPT_HOME"] = str(Path.home() / ".codegpt")
@@ -3018,11 +3048,15 @@ def build_tool_env(tool_name):
     env["CODEGPT_TRAINING"] = str(Path.home() / ".codegpt" / "training")
     env["CODEGPT_CHATS"] = str(Path.home() / ".codegpt" / "chats")
     env["CODEGPT_TOOL"] = tool_name
+    env["CODEGPT_TOOL_ROLE"] = role
+    env["CODEGPT_TOOL_DESC"] = tool_info.get("desc", "")
     env["CODEGPT_USER"] = profile.get("name", "")
     env["CODEGPT_MODEL"] = profile.get("model", MODEL)
     env["CODEGPT_PERSONA"] = profile.get("persona", "default")
     env["CODEGPT_SESSIONS"] = str(profile.get("total_sessions", 0))
     env["CODEGPT_TOTAL_MSGS"] = str(profile.get("total_messages", 0))
+    env["CODEGPT_APP"] = "CodeGPT — Local AI Assistant Hub"
+    env["CODEGPT_VERSION"] = "2.0"
 
     return env
 
