@@ -132,13 +132,18 @@ def query_ollama(messages, model, system, stream=False):
     ollama_messages.extend(messages)
 
     if stream:
-        response = http_requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={"model": model or OLLAMA_MODEL, "messages": ollama_messages, "stream": True},
-            stream=True,
-            timeout=120,
-        )
-        response.raise_for_status()
+        try:
+            response = http_requests.post(
+                f"{OLLAMA_URL}/api/chat",
+                json={"model": model or OLLAMA_MODEL, "messages": ollama_messages, "stream": True},
+                stream=True,
+                timeout=120,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            def error_gen():
+                yield json.dumps({"content": f"Error: {e}", "done": True}) + "\n"
+            return error_gen()
 
         def generate():
             for line in response.iter_lines():
@@ -239,6 +244,8 @@ def chat_stream():
     server_stats["requests"] += 1
 
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
     messages = data.get("messages", [])
     model = data.get("model", "")
     persona = data.get("persona", "Default")
@@ -246,6 +253,15 @@ def chat_stream():
 
     if not messages:
         return jsonify({"error": "No messages"}), 400
+
+    # Input validation: cap message count and content length
+    if len(messages) > 100:
+        messages = messages[-100:]
+    for msg in messages:
+        if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+            return jsonify({"error": "Invalid message format"}), 400
+        if len(msg["content"]) > 50000:
+            msg["content"] = msg["content"][:50000]
 
     try:
         if PROVIDER == "groq":
@@ -267,6 +283,8 @@ def chat_quick():
     server_stats["requests"] += 1
 
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
     messages = data.get("messages", [])
     model = data.get("model", "")
     persona = data.get("persona", "Default")
@@ -274,6 +292,15 @@ def chat_quick():
 
     if not messages:
         return jsonify({"error": "No messages"}), 400
+
+    # Input validation
+    if len(messages) > 100:
+        messages = messages[-100:]
+    for msg in messages:
+        if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+            return jsonify({"error": "Invalid message format"}), 400
+        if len(msg["content"]) > 50000:
+            msg["content"] = msg["content"][:50000]
 
     try:
         if PROVIDER == "groq":
@@ -294,7 +321,7 @@ if __name__ == "__main__":
     print(f"  Provider: {PROVIDER}")
     if PROVIDER == "groq":
         print(f"  Model:    {DEFAULT_MODEL}")
-        print(f"  API Key:  {GROQ_API_KEY[:10]}...")
+        print(f"  API Key:  ****{GROQ_API_KEY[-4:]}")
     else:
         print(f"  Model:    {OLLAMA_MODEL}")
         print(f"  Ollama:   {OLLAMA_URL}")

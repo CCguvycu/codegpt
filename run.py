@@ -102,9 +102,9 @@ def build_apk():
     if result.returncode == 0:
         # Copy APK to desktop
         apk_path = project / "build" / "apk" / "app-release.apk"
-        desktop = Path.home() / "OneDrive" / "Desktop"
+        desktop = Path.home() / "Desktop"
         if not desktop.exists():
-            desktop = Path.home() / "Desktop"
+            desktop = Path.home() / "OneDrive" / "Desktop"
         if apk_path.exists():
             import shutil
             dest = desktop / "CodeGPT.apk"

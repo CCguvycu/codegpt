@@ -122,7 +122,7 @@ def ensure_ollama():
     try:
         resp = requests.get("http://localhost:11434/api/tags", timeout=3)
         return [m["name"] for m in resp.json().get("models", [])]
-    except requests.ConnectionError:
+    except (requests.ConnectionError, requests.Timeout):
         subprocess.Popen(
             ["ollama", "serve"],
             stdout=subprocess.DEVNULL,
@@ -134,7 +134,7 @@ def ensure_ollama():
             try:
                 resp = requests.get("http://localhost:11434/api/tags", timeout=2)
                 return [m["name"] for m in resp.json().get("models", [])]
-            except requests.ConnectionError:
+            except (requests.ConnectionError, requests.Timeout):
                 continue
         return []
 

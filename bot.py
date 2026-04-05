@@ -1023,7 +1023,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     system = PERSONAS.get(persona, SYSTEM_PROMPT)
 
     response_text, stats = query_ollama(user_conversations[uid], model, system)
-    user_conversations[uid].append({"role": "assistant", "content": response_text})
+    if not response_text.startswith("Error:"):
+        user_conversations[uid].append({"role": "assistant", "content": response_text})
 
     await safe_reply(update.message, response_text + stats)
 

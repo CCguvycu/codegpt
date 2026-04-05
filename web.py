@@ -402,6 +402,8 @@ function escapeHtml(s) {
 }
 
 function formatMarkdown(text) {
+    // Sanitize HTML to prevent XSS from AI output
+    text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Code blocks
     text = text.replace(/```(\\w*)\\n([\\s\\S]*?)```/g, '<pre><code>$2</code></pre>');
     // Inline code
