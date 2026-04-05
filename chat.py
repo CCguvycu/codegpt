@@ -436,6 +436,12 @@ COMMANDS = {
     "/audit": "View security audit log",
     "/security": "Security status dashboard",
     "/permissions": "View/reset action permissions",
+    "/skill": "Create a custom command (/skill name prompt)",
+    "/skills": "List custom skills",
+    "/browse": "Browse a URL and summarize (/browse url)",
+    "/cron": "Schedule a recurring task (/cron 5m /weather)",
+    "/crons": "List scheduled tasks",
+    "/auto": "AI creates a skill from your description",
     "/connect": "Connect to remote Ollama (/connect 192.168.1.237)",
     "/disconnect": "Switch back to local Ollama",
     "/server": "Show current Ollama server",
@@ -4037,6 +4043,210 @@ def grid_tools(tools):
     audit_log("GRID_LAUNCH", tool_list)
 
 
+# --- Custom Skills (OpenClaw-style self-extending) ---
+
+SKILLS_DIR = Path.home() / ".codegpt" / "skills"
+SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_skills():
+    """Load all custom skills."""
+    skills = {}
+    for f in SKILLS_DIR.glob("*.json"):
+        try:
+            data = json.loads(f.read_text())
+            skills[data["name"]] = data
+        except Exception:
+            pass
+    return skills
+
+
+def save_skill(name, prompt_text, desc=""):
+    """Save a custom skill."""
+    skill = {
+        "name": name,
+        "prompt": prompt_text,
+        "desc": desc or f"Custom skill: {name}",
+        "created": datetime.now().isoformat(),
+    }
+    (SKILLS_DIR / f"{name}.json").write_text(json.dumps(skill, indent=2))
+    return skill
+
+
+def delete_skill(name):
+    f = SKILLS_DIR / f"{name}.json"
+    if f.exists():
+        f.unlink()
+        return True
+    return False
+
+
+# --- Browser ---
+
+def browse_url(url):
+    """Fetch a URL, extract text, and summarize it."""
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    print_sys(f"Fetching {url}...")
+
+    try:
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "CodeGPT/2.0"})
+        resp.raise_for_status()
+        html = resp.text
+
+        # Simple HTML to text — strip tags
+        import re as _re
+        text = _re.sub(r'<script[^>]*>.*?</script>', '', html, flags=_re.DOTALL)
+        text = _re.sub(r'<style[^>]*>.*?</style>', '', text, flags=_re.DOTALL)
+        text = _re.sub(r'<[^>]+>', ' ', text)
+        text = _re.sub(r'\s+', ' ', text).strip()
+
+        # Truncate
+        text = text[:5000]
+
+        console.print(Rule(style="bright_cyan", characters="─"))
+        console.print(Text(f"  {url}", style="dim"))
+        console.print()
+
+        # Ask AI to summarize
+        try:
+            ai_resp = requests.post(OLLAMA_URL, json={
+                "model": MODEL,
+                "messages": [
+                    {"role": "system", "content": "Summarize this web page content in 3-5 bullet points. Be concise."},
+                    {"role": "user", "content": f"URL: {url}\n\nContent:\n{text}"},
+                ],
+                "stream": False,
+            }, timeout=60)
+            summary = ai_resp.json().get("message", {}).get("content", text[:500])
+            console.print(Markdown(summary))
+        except Exception:
+            # Fallback: show raw text
+            console.print(Text(text[:500], style="white"))
+
+        console.print()
+        return text
+
+    except Exception as e:
+        print_err(f"Cannot fetch {url}: {e}")
+        return None
+
+
+# --- Cron / Scheduled Tasks ---
+
+active_crons = []
+
+
+def add_cron(interval_str, command):
+    """Schedule a recurring command."""
+    # Parse interval: 5m, 1h, 30s
+    match = re.match(r'^(\d+)\s*(s|sec|m|min|h|hr|hour)s?$', interval_str, re.IGNORECASE)
+    if not match:
+        print_err("Bad interval. Examples: 30s, 5m, 1h")
+        return
+
+    value = int(match.group(1))
+    unit = match.group(2).lower()
+    if unit in ('m', 'min'):
+        seconds = value * 60
+    elif unit in ('h', 'hr', 'hour'):
+        seconds = value * 3600
+    else:
+        seconds = value
+
+    def run_cron():
+        while True:
+            time.sleep(seconds)
+            # Check if still active
+            if cron_entry not in active_crons:
+                break
+            print_sys(f"[cron] Running: {command}")
+            # Execute as if user typed it
+            cron_entry["last_run"] = datetime.now().isoformat()
+            cron_entry["runs"] += 1
+
+    cron_entry = {
+        "command": command,
+        "interval": interval_str,
+        "seconds": seconds,
+        "runs": 0,
+        "created": datetime.now().isoformat(),
+        "last_run": None,
+    }
+    active_crons.append(cron_entry)
+
+    t = threading.Thread(target=run_cron, daemon=True)
+    t.start()
+    cron_entry["thread"] = t
+
+    print_sys(f"Scheduled: {command} every {interval_str}")
+
+
+def list_crons():
+    if not active_crons:
+        print_sys("No scheduled tasks. Use: /cron 5m /weather")
+        return
+
+    table = Table(title="Scheduled Tasks", border_style="bright_cyan",
+                  title_style="bold cyan", show_header=True, header_style="bold")
+    table.add_column("#", style="cyan", width=3)
+    table.add_column("Command", style="bright_cyan")
+    table.add_column("Interval", style="dim")
+    table.add_column("Runs", style="dim", width=5)
+    for i, c in enumerate(active_crons, 1):
+        table.add_row(str(i), c["command"], c["interval"], str(c["runs"]))
+    console.print(table)
+    console.print()
+
+
+# --- Auto-Skill (AI creates commands) ---
+
+def auto_create_skill(description, model):
+    """AI creates a custom skill from a description."""
+    print_sys("AI is designing your skill...")
+
+    try:
+        resp = requests.post(OLLAMA_URL, json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": (
+                    "You are a skill designer for CodeGPT CLI. "
+                    "Given a description, create a skill with:\n"
+                    "1. A short name (lowercase, no spaces)\n"
+                    "2. A system prompt that the AI will use\n"
+                    "3. A description\n\n"
+                    "Respond ONLY in this JSON format:\n"
+                    '{"name": "skillname", "prompt": "system prompt here", "desc": "short description"}'
+                )},
+                {"role": "user", "content": description},
+            ],
+            "stream": False,
+        }, timeout=60)
+        content = resp.json().get("message", {}).get("content", "")
+
+        # Parse JSON from response
+        json_match = re.search(r'\{[^}]+\}', content, re.DOTALL)
+        if json_match:
+            skill_data = json.loads(json_match.group())
+            name = skill_data.get("name", "").lower().replace(" ", "-")
+            prompt_text = skill_data.get("prompt", "")
+            desc = skill_data.get("desc", "")
+
+            if name and prompt_text:
+                save_skill(name, prompt_text, desc)
+                print_success(f"Skill created: /{name}")
+                print_sys(f"  {desc}")
+                print_sys(f"  Use it: /{name} <your message>")
+                return name
+
+        print_err("AI couldn't create a valid skill. Try a clearer description.")
+
+    except Exception as e:
+        print_err(f"Failed: {e}")
+    return None
+
+
 # --- Voice Input ---
 
 def voice_input():
@@ -6447,6 +6657,101 @@ def main():
                             print_err(f"Cannot reach {new_url}")
                 except (KeyboardInterrupt, EOFError):
                     print_sys("Cancelled.")
+                continue
+
+            elif cmd == "/skill":
+                args_text = user_input[len("/skill "):].strip()
+                parts = args_text.split(maxsplit=1)
+                if len(parts) == 2:
+                    skill_name = parts[0].lower().replace(" ", "-")
+                    skill_prompt = parts[1]
+                    save_skill(skill_name, skill_prompt)
+                    print_success(f"Skill created: /{skill_name}")
+                    print_sys(f"  Use it: /{skill_name} <your message>")
+                elif len(parts) == 1 and parts[0] == "delete":
+                    print_sys("Usage: /skill delete <name>")
+                elif len(parts) == 1:
+                    # Check if it's a delete
+                    print_sys("Usage: /skill myskill Your custom system prompt here")
+                else:
+                    print_sys("Usage: /skill myskill Your system prompt for this skill")
+                    print_sys("Example: /skill poet Write responses as poetry")
+                continue
+
+            elif cmd == "/skills":
+                skills = load_skills()
+                if skills:
+                    console.print(Text("  Custom skills:", style="bold"))
+                    for name, data in skills.items():
+                        console.print(Text.from_markup(
+                            f"  [bright_cyan]/{name}[/] — [dim]{data.get('desc', data.get('prompt', '')[:40])}[/]"
+                        ))
+                    console.print()
+                else:
+                    print_sys("No custom skills. Create one:")
+                    print_sys("  /skill myskill Your system prompt")
+                    print_sys("  /auto describe what you want the skill to do")
+                continue
+
+            elif cmd == "/browse":
+                url = user_input[len("/browse "):].strip()
+                if url and ask_permission("open_url", f"Fetch {url}"):
+                    content = browse_url(url)
+                    if content:
+                        messages.append({"role": "user", "content": f"[browsed: {url}]"})
+                        messages.append({"role": "assistant", "content": content[:500]})
+                        session_stats["messages"] += 2
+                else:
+                    print_sys("Usage: /browse google.com")
+                continue
+
+            elif cmd == "/cron":
+                args_text = user_input[len("/cron "):].strip()
+                parts = args_text.split(maxsplit=1)
+                if len(parts) == 2:
+                    add_cron(parts[0], parts[1])
+                elif args_text == "stop":
+                    active_crons.clear()
+                    print_sys("All crons stopped.")
+                else:
+                    print_sys("Usage: /cron 5m /weather")
+                    print_sys("       /cron 1h /status")
+                    print_sys("       /cron stop")
+                continue
+
+            elif cmd == "/crons":
+                list_crons()
+                continue
+
+            elif cmd == "/auto":
+                desc = user_input[len("/auto "):].strip()
+                if desc:
+                    auto_create_skill(desc, model)
+                else:
+                    print_sys("Usage: /auto a skill that writes haiku poetry")
+                    print_sys("       /auto a code reviewer that checks for security bugs")
+                continue
+
+            # Check custom skills
+            elif cmd[1:] in load_skills():
+                skill = load_skills()[cmd[1:]]
+                skill_input = user_input[len(cmd):].strip()
+                if skill_input:
+                    messages.append({"role": "user", "content": skill_input})
+                    session_stats["messages"] += 1
+                    # Use skill's prompt as system
+                    old_system = system
+                    system = skill["prompt"]
+                    response = stream_response(messages, system, model)
+                    system = old_system
+                    if response:
+                        messages.append({"role": "assistant", "content": response})
+                        session_stats["messages"] += 1
+                    else:
+                        messages.pop()
+                else:
+                    print_sys(f"Usage: /{cmd[1:]} <your message>")
+                    print_sys(f"  Prompt: {skill['prompt'][:60]}...")
                 continue
 
             elif cmd == "/permissions":
