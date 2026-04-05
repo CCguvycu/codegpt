@@ -419,6 +419,7 @@ COMMANDS = {
     "/lock": "Lock session now",
     "/audit": "View security audit log",
     "/security": "Security status dashboard",
+    "/permissions": "View/reset action permissions",
     "/connect": "Connect to remote Ollama (/connect 192.168.1.237)",
     "/disconnect": "Switch back to local Ollama",
     "/server": "Show current Ollama server",
@@ -482,6 +483,100 @@ input_style = PtStyle.from_dict({
 
 session_stats = {"messages": 0, "tokens_in": 0, "tokens_out": 0, "start": time.time()}
 last_ai_response = ""
+
+# --- Permissions ---
+
+PERMISSION_ALWAYS_ALLOW = set()  # Commands the user has approved permanently
+PERMISSION_FILE = Path.home() / ".codegpt" / "permissions.json"
+
+
+def load_permissions():
+    global PERMISSION_ALWAYS_ALLOW
+    if PERMISSION_FILE.exists():
+        try:
+            data = json.loads(PERMISSION_FILE.read_text())
+            PERMISSION_ALWAYS_ALLOW = set(data.get("always_allow", []))
+        except Exception:
+            pass
+
+
+def save_permissions():
+    PERMISSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PERMISSION_FILE.write_text(json.dumps({
+        "always_allow": list(PERMISSION_ALWAYS_ALLOW),
+    }, indent=2))
+
+
+# Actions that need confirmation
+RISKY_ACTIONS = {
+    "shell": "Run a shell command",
+    "code_exec": "Execute Python code",
+    "tool_launch": "Launch an external AI tool",
+    "tool_install": "Install a new tool",
+    "file_read": "Read a file into context",
+    "export": "Export conversation to file",
+    "connect": "Connect to a remote server",
+    "train_build": "Build a custom AI model",
+    "mem_clear": "Clear all AI memories",
+    "pin_set": "Set a login PIN",
+}
+
+
+def ask_permission(action, detail=""):
+    """Ask user for permission before performing a risky action.
+    Returns True if allowed, False if denied."""
+
+    # Already permanently approved
+    if action in PERMISSION_ALWAYS_ALLOW:
+        return True
+
+    # Build the prompt
+    action_desc = RISKY_ACTIONS.get(action, action)
+    compact = is_compact()
+
+    if compact:
+        console.print(Panel(
+            Text.from_markup(
+                f"[bold yellow]Permission[/]\n"
+                f"  {action_desc}\n"
+                + (f"  [dim]{detail[:40]}[/]\n" if detail else "")
+            ),
+            border_style="yellow", padding=(0, 1), width=tw(),
+        ))
+    else:
+        console.print(Panel(
+            Text.from_markup(
+                f"[bold yellow]Permission Required[/]\n\n"
+                f"  Action: [bright_cyan]{action_desc}[/]\n"
+                + (f"  Detail: [dim]{detail[:60]}[/]\n" if detail else "")
+                + f"\n  [dim](y)es  (n)o  (a)lways allow this[/]"
+            ),
+            border_style="yellow", padding=(0, 2), width=tw(),
+        ))
+
+    try:
+        answer = prompt(
+            [("class:prompt", " Allow? (y/n/a) > ")],
+            style=input_style,
+        ).strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return False
+
+    if answer in ("a", "always"):
+        PERMISSION_ALWAYS_ALLOW.add(action)
+        save_permissions()
+        print_sys(f"Always allowed: {action_desc}")
+        return True
+    elif answer in ("y", "yes"):
+        return True
+    else:
+        print_sys("Denied.")
+        return False
+
+
+# Load saved permissions on startup
+load_permissions()
+
 
 # --- Security ---
 
@@ -4537,7 +4632,7 @@ def main():
 
             elif cmd == "/file":
                 file_path = user_input[len("/file "):].strip()
-                if file_path:
+                if file_path and ask_permission("file_read", file_path):
                     file_content = read_file_context(file_path)
                     if file_content:
                         messages.append({"role": "user", "content": file_content})
@@ -4556,6 +4651,8 @@ def main():
             elif cmd == "/run":
                 if code_exec_count >= CODE_EXEC_LIMIT:
                     print_err(f"Code execution limit reached ({CODE_EXEC_LIMIT}/session). Restart to reset.")
+                    continue
+                if not ask_permission("code_exec", "Execute Python code from last AI response"):
                     continue
                 code_exec_count += 1
                 audit_log("CODE_EXEC", f"run #{code_exec_count}")
@@ -5571,6 +5668,9 @@ def main():
                 tool_args = user_input[len(cmd):].strip()
 
                 if shutil.which(tool_bin):
+                    if not ask_permission("tool_launch", f"Launch {tool['name']}"):
+                        continue
+
                     # Coding tools get full project access, others are sandboxed
                     coding_tools = ["codex", "opencode", "cline", "aider", "mentat",
                                     "gpt-engineer", "interpreter", "copilot"]
@@ -5648,6 +5748,8 @@ def main():
                         print_sys("Use a desktop/PC for this tool.")
                         continue
 
+                    if not ask_permission("tool_install", f"Install {tool['name']} via {' '.join(install_cmd[:3])}"):
+                        continue
                     print_sys(f"Installing {tool['name']}...")
 
                     # Pick platform-specific install command
@@ -5962,12 +6064,12 @@ def main():
             elif cmd == "/shell":
                 cmd_text = user_input[len("/shell "):].strip()
                 safe, blocked = is_shell_safe(cmd_text)
-                if safe:
+                if not safe:
+                    print_err(f"Blocked: {blocked}")
+                    audit_log("SHELL_BLOCKED", f"{blocked} in: {cmd_text}")
+                elif ask_permission("shell", f"$ {cmd_text}"):
                     audit_log("SHELL", cmd_text)
                     run_shell(cmd_text)
-                else:
-                    print_err(f"Blocked: dangerous command ({blocked})")
-                    audit_log("SHELL_BLOCKED", f"{blocked} in: {cmd_text}")
                 continue
 
             elif cmd == "/pin-set":
@@ -6037,7 +6139,7 @@ def main():
 
             elif cmd == "/connect":
                 addr = user_input[len("/connect "):].strip()
-                if addr:
+                if addr and ask_permission("connect", f"Connect to {addr}"):
                     if not addr.startswith("http"):
                         addr = "http://" + addr
                     if ":" not in addr.split("//")[1]:
@@ -6236,6 +6338,26 @@ def main():
                             print_err(f"Cannot reach {new_url}")
                 except (KeyboardInterrupt, EOFError):
                     print_sys("Cancelled.")
+                continue
+
+            elif cmd == "/permissions":
+                sub = user_input[len("/permissions "):].strip().lower()
+                if sub == "reset":
+                    PERMISSION_ALWAYS_ALLOW.clear()
+                    save_permissions()
+                    print_sys("All permissions reset. You'll be asked again.")
+                else:
+                    table = Table(title="Permissions", border_style="yellow",
+                                  title_style="bold yellow", show_header=True, header_style="bold")
+                    table.add_column("Action", style="bright_cyan", width=16)
+                    table.add_column("Description", style="dim")
+                    table.add_column("Status", width=10)
+                    for action, desc in RISKY_ACTIONS.items():
+                        status = "[green]allowed[/]" if action in PERMISSION_ALWAYS_ALLOW else "[yellow]ask[/]"
+                        table.add_row(action, desc, status)
+                    console.print(table)
+                    console.print(Text("  /permissions reset — revoke all", style="dim"))
+                    console.print()
                 continue
 
             elif cmd == "/security":
