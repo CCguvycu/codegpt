@@ -439,6 +439,7 @@ COMMANDS = {
     "/security": "Security status dashboard",
     "/permissions": "View/reset action permissions",
     "/desktop": "Launch CodeGPT desktop app",
+    "/tui": "Launch CodeGPT TUI mode",
     "/skill": "Create a custom command (/skill name prompt)",
     "/skills": "List custom skills",
     "/browse": "Browse a URL and summarize (/browse url)",
@@ -7257,6 +7258,30 @@ def main():
                     cwd=str(Path(desktop_py).parent),
                 )
                 print_sys("Desktop app opened in a new window.")
+                continue
+
+            elif cmd == "/tui":
+                tui_paths = [
+                    os.path.join(str(Path(__file__).parent), "tui.py"),
+                    os.path.join(str(Path.home()), "codegpt", "tui.py"),
+                ]
+                tui_py = None
+                for tp in tui_paths:
+                    if os.path.isfile(tp):
+                        tui_py = tp
+                        break
+                if not tui_py:
+                    try:
+                        tui_py = os.path.join(str(Path.home()), ".codegpt", "tui.py")
+                        r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/tui.py", timeout=15)
+                        Path(tui_py).parent.mkdir(parents=True, exist_ok=True)
+                        Path(tui_py).write_text(r.text, encoding="utf-8")
+                    except Exception:
+                        print_err("Cannot download TUI.")
+                        continue
+                print_sys("Launching TUI mode...")
+                subprocess.run([sys.executable, tui_py])
+                print_header(model)
                 continue
 
             elif cmd == "/permissions":
