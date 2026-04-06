@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import time
+import subprocess
+import threading
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -123,6 +125,61 @@ TUI_COMMANDS = {
     "/weather": "Get weather",
     "/agent": "Run an AI agent",
     "/quit": "Exit",
+    "/temp": "Set temperature (0-2)",
+    "/system": "Set system prompt",
+    "/export": "Export chat as text",
+    "/browse": "Fetch and summarize URL",
+    "/open": "Open URL in browser",
+    "/save": "Save conversation",
+    "/copy": "Copy last response",
+    "/regen": "Regenerate last response",
+    "/compact": "Summarize old messages",
+    "/search": "Search conversation",
+    "/diff": "Compare last 2 responses",
+    "/pin": "Pin a message",
+    "/pins": "Show pinned messages",
+    "/fork": "Fork conversation from #",
+    "/rate": "Rate last response (good/bad)",
+    "/all": "Ask ALL agents at once",
+    "/vote": "Agents vote on a question",
+    "/swarm": "6-agent pipeline",
+    "/team": "Group chat with 2 AIs",
+    "/room": "Chat room with 3+ AIs",
+    "/spectate": "Watch AIs debate",
+    "/dm": "Message a specific agent",
+    "/race": "Race all models",
+    "/compare": "Compare 2 models",
+    "/chain": "Chain prompts (p1 | p2 | p3)",
+    "/lab": "AI Lab experiments",
+    "/train": "AI Training Lab",
+    "/mem": "AI memory (save/recall)",
+    "/skill": "Create custom command",
+    "/skills": "List custom skills",
+    "/auto": "AI creates a skill",
+    "/cron": "Schedule recurring task",
+    "/tools": "List AI tool integrations",
+    "/github": "GitHub tools",
+    "/spotify": "Spotify controls",
+    "/volume": "System volume",
+    "/sysinfo": "System info",
+    "/usage": "Usage dashboard",
+    "/profile": "View profile",
+    "/setname": "Set display name",
+    "/setbio": "Set bio",
+    "/security": "Security dashboard",
+    "/permissions": "View permissions",
+    "/audit": "Security audit log",
+    "/pin-set": "Set login PIN",
+    "/lock": "Lock session",
+    "/qr": "QR code to connect",
+    "/broadcast": "Message all tools",
+    "/inbox": "Check messages",
+    "/feed": "Message feed",
+    "/monitor": "Live dashboard",
+    "/hub": "Command center",
+    "/shortcuts": "Keyboard shortcuts",
+    "/prompts": "Prompt templates",
+    "/desktop": "Desktop app (PC only)",
 }
 
 
@@ -386,16 +443,222 @@ def handle_command(text):
             console.print(Text("  Usage: /agent coder build a flask API", style="dim"))
         console.print()
 
+    elif cmd == "/temp":
+        if args:
+            try:
+                t = float(args)
+                if 0 <= t <= 2:
+                    console.print(Text(f"  Temperature: {t}", style="green"))
+            except:
+                console.print(Text("  Usage: /temp 0.7 (0.0-2.0)", style="dim"))
+        else:
+            console.print(Text("  Usage: /temp 0.7", style="dim"))
+        console.print()
+
+    elif cmd == "/system":
+        if args:
+            system = args
+            console.print(Text("  System prompt updated.", style="green"))
+        else:
+            console.print(Text(f"  Current: {system[:80]}...", style="dim"))
+        console.print()
+
+    elif cmd == "/export":
+        if messages:
+            lines = []
+            for m in messages:
+                role = "You" if m["role"] == "user" else "AI"
+                lines.append(f"{role}: {m['content']}\n")
+            export_path = Path.home() / ".codegpt" / f"export_{datetime.now().strftime('%Y%m%d_%H%M')}.md"
+            export_path.parent.mkdir(parents=True, exist_ok=True)
+            export_path.write_text("\n".join(lines), encoding="utf-8")
+            console.print(Text(f"  Exported: {export_path}", style="green"))
+        else:
+            console.print(Text("  Nothing to export.", style="dim"))
+        console.print()
+
+    elif cmd == "/browse":
+        if args:
+            url = args if args.startswith("http") else "https://" + args
+            console.print(Text(f"  Fetching {url}...", style="dim"))
+            try:
+                import re as _re
+                r = requests.get(url, timeout=15, headers={"User-Agent": "CodeGPT/2.0"})
+                text = _re.sub(r'<script[^>]*>.*?</script>', '', r.text, flags=_re.DOTALL)
+                text = _re.sub(r'<style[^>]*>.*?</style>', '', text, flags=_re.DOTALL)
+                text = _re.sub(r'<[^>]+>', ' ', text)
+                text = _re.sub(r'\s+', ' ', text).strip()[:3000]
+                resp = requests.post(OLLAMA_URL, json={
+                    "model": MODEL, "messages": [
+                        {"role": "system", "content": "Summarize in 3-5 bullet points."},
+                        {"role": "user", "content": text},
+                    ], "stream": False,
+                }, timeout=60)
+                summary = resp.json().get("message", {}).get("content", text[:500])
+                print_msg("ai", summary)
+            except Exception as e:
+                console.print(Text(f"  Error: {e}", style="red"))
+        else:
+            console.print(Text("  Usage: /browse github.com", style="dim"))
+        console.print()
+
+    elif cmd == "/open":
+        if args:
+            url = args if args.startswith("http") else "https://" + args
+            if os.path.exists("/data/data/com.termux"):
+                try:
+                    subprocess.run(["termux-open-url", url], timeout=5)
+                except:
+                    subprocess.run(["am", "start", "-a", "android.intent.action.VIEW", "-d", url], timeout=5)
+            else:
+                import webbrowser
+                webbrowser.open(url)
+            console.print(Text(f"  Opened: {url}", style="green"))
+        else:
+            console.print(Text("  Usage: /open google.com", style="dim"))
+        console.print()
+
+    elif cmd == "/all":
+        if args:
+            agents_list = {
+                "coder": "You are an expert programmer.",
+                "debugger": "You are a debugging expert.",
+                "reviewer": "You are a code reviewer.",
+                "architect": "You are a system architect.",
+                "pentester": "You are an ethical pentester.",
+                "explainer": "You are a patient teacher.",
+                "optimizer": "You are a performance engineer.",
+                "researcher": "You are a research analyst.",
+            }
+            import threading
+            results = {}
+            def _query(n, s):
+                try:
+                    r = requests.post(OLLAMA_URL, json={"model": MODEL, "messages": [
+                        {"role": "system", "content": s}, {"role": "user", "content": args}
+                    ], "stream": False}, timeout=90)
+                    results[n] = r.json().get("message", {}).get("content", "")
+                except:
+                    results[n] = "(error)"
+            threads = [threading.Thread(target=_query, args=(n, s), daemon=True) for n, s in agents_list.items()]
+            for t in threads: t.start()
+            console.print(Text("  Asking all 8 agents...", style="dim"))
+            for t in threads: t.join(timeout=90)
+            for name, resp in results.items():
+                console.print(Text.from_markup(f"\n  [bright_blue]{name}[/]"))
+                console.print(Text(f"  {resp[:200]}", style="white"))
+            console.print()
+        else:
+            console.print(Text("  Usage: /all what database should I use?", style="dim"))
+        console.print()
+
+    elif cmd == "/save":
+        if messages:
+            save_path = Path.home() / ".codegpt" / "chats" / f"{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_text(json.dumps({"messages": messages, "model": MODEL}))
+            console.print(Text(f"  Saved: {save_path.name}", style="green"))
+        else:
+            console.print(Text("  Nothing to save.", style="dim"))
+        console.print()
+
+    elif cmd == "/copy":
+        ai_msgs = [m for m in messages if m["role"] == "assistant"]
+        if ai_msgs:
+            last = ai_msgs[-1]["content"]
+            try:
+                import subprocess
+                if os.path.exists("/data/data/com.termux"):
+                    subprocess.run(["termux-clipboard-set"], input=last.encode(), timeout=5)
+                else:
+                    subprocess.run("clip" if os.name == "nt" else "pbcopy", input=last.encode(), shell=True, timeout=5)
+                console.print(Text("  Copied to clipboard.", style="green"))
+            except:
+                console.print(Text("  Cannot copy — clipboard not available.", style="red"))
+        else:
+            console.print(Text("  No response to copy.", style="dim"))
+        console.print()
+
+    elif cmd == "/regen":
+        if messages and messages[-1]["role"] == "assistant":
+            messages.pop()
+            if messages and messages[-1]["role"] == "user":
+                last_q = messages[-1]["content"]
+                messages.pop()
+                print_msg("user", last_q)
+                chat(last_q)
+        else:
+            console.print(Text("  Nothing to regenerate.", style="dim"))
+            console.print()
+
+    elif cmd == "/rate":
+        rating = args.lower() if args else ""
+        if rating in ("good", "bad", "+", "-"):
+            ai_msgs = [m for m in messages if m["role"] == "assistant"]
+            if ai_msgs:
+                ratings_file = Path.home() / ".codegpt" / "ratings.json"
+                ratings = []
+                if ratings_file.exists():
+                    try: ratings = json.loads(ratings_file.read_text())
+                    except: pass
+                ratings.append({"rating": "good" if rating in ("good", "+") else "bad",
+                                "response": ai_msgs[-1]["content"][:200],
+                                "timestamp": datetime.now().isoformat()})
+                ratings_file.write_text(json.dumps(ratings))
+                console.print(Text(f"  Rated: {rating}", style="green"))
+        else:
+            console.print(Text("  Usage: /rate good  or  /rate bad", style="dim"))
+        console.print()
+
+    elif cmd == "/usage":
+        profile = {}
+        if profile_file.exists():
+            try: profile = json.loads(profile_file.read_text())
+            except: pass
+        console.print(Text.from_markup(
+            f"  [bold]Session[/]\n"
+            f"    Messages    [bright_blue]{len(messages)}[/]\n"
+            f"    Tokens      [bright_blue]{total_tokens}[/]\n"
+            f"    Model       [bright_blue]{MODEL}[/]\n"
+            f"    Persona     [bright_blue]{persona}[/]\n\n"
+            f"  [bold]Lifetime[/]\n"
+            f"    Messages    [bright_blue]{profile.get('total_messages', 0)}[/]\n"
+            f"    Sessions    [bright_blue]{profile.get('total_sessions', 0)}[/]"
+        ))
+        console.print()
+
+    elif cmd == "/profile":
+        profile = {}
+        if profile_file.exists():
+            try: profile = json.loads(profile_file.read_text())
+            except: pass
+        console.print(Text.from_markup(
+            f"  [bold]{profile.get('name', 'User')}[/]\n"
+            f"    Bio       {profile.get('bio', '')}\n"
+            f"    Model     [bright_blue]{profile.get('model', MODEL)}[/]\n"
+            f"    Persona   [green]{profile.get('persona', 'default')}[/]\n"
+            f"    Sessions  {profile.get('total_sessions', 0)}"
+        ))
+        console.print()
+
     elif cmd == "/help" or cmd == "/h":
-        cmds = {
-            "/new": "New chat", "/model": "Switch model", "/persona": "Switch persona",
-            "/think": "Toggle reasoning", "/tokens": "Token count", "/clear": "Clear screen",
-            "/sidebar": "Toggle sidebar", "/history": "Show history", "/connect": "Remote Ollama",
-            "/server": "Server info", "/weather": "Get weather", "/agent": "Run agent",
-            "/help": "This list", "/quit": "Exit",
+        groups = {
+            "Chat": ["/new", "/save", "/copy", "/regen", "/history", "/clear", "/export", "/quit"],
+            "Model": ["/model", "/models", "/persona", "/think", "/temp", "/tokens", "/system"],
+            "AI": ["/agent", "/all", "/vote", "/swarm", "/team", "/room", "/spectate", "/race"],
+            "Files": ["/browse", "/open"],
+            "Memory": ["/mem", "/train", "/rate", "/search", "/fork", "/pin"],
+            "Tools": ["/tools", "/skill", "/auto", "/cron"],
+            "Connect": ["/connect", "/server", "/qr", "/weather", "/sysinfo", "/github"],
+            "Profile": ["/profile", "/usage", "/setname", "/setbio", "/permissions"],
+            "Security": ["/pin-set", "/lock", "/audit", "/security"],
         }
-        for c, d in cmds.items():
-            console.print(Text.from_markup(f"    [bright_blue]{c:<12}[/] [dim]{d}[/]"))
+        for group, cmds_list in groups.items():
+            console.print(Text(f"\n  {group}", style="bold bright_blue"))
+            for c in cmds_list:
+                desc = TUI_COMMANDS.get(c, "")
+                if desc:
+                    console.print(Text.from_markup(f"    [bright_blue]{c:<14}[/] [dim]{desc}[/]"))
         console.print()
 
     else:
