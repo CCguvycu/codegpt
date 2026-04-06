@@ -17,6 +17,7 @@ from rich.rule import Rule
 from rich.align import Align
 from prompt_toolkit import prompt
 from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style as PtStyle
 
 # Config
@@ -105,6 +106,36 @@ if profile_file.exists():
 OLLAMA_BASE = OLLAMA_URL.replace("/api/chat", "")
 
 console = Console()
+
+TUI_COMMANDS = {
+    "/help": "Show all commands",
+    "/new": "New conversation",
+    "/model": "Switch model",
+    "/models": "List all models",
+    "/persona": "Switch persona",
+    "/think": "Toggle deep thinking",
+    "/tokens": "Token count",
+    "/clear": "Clear screen",
+    "/sidebar": "Toggle sidebar",
+    "/history": "Show history",
+    "/connect": "Connect to remote Ollama",
+    "/server": "Server info",
+    "/weather": "Get weather",
+    "/agent": "Run an AI agent",
+    "/quit": "Exit",
+}
+
+
+class TuiCompleter(Completer):
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lstrip()
+        if text.startswith("/"):
+            typed = text.lower()
+            for cmd, desc in TUI_COMMANDS.items():
+                if cmd.startswith(typed):
+                    yield Completion(cmd, start_position=-len(text), display=cmd, display_meta=desc)
+
+cmd_completer = TuiCompleter()
 history = InMemoryHistory()
 style = PtStyle.from_dict({
     "prompt": "ansicyan bold",
@@ -408,6 +439,8 @@ def main():
                 [("class:prompt", " ❯ ")],
                 style=style,
                 history=history,
+                completer=cmd_completer,
+                complete_while_typing=True,
                 bottom_toolbar=toolbar,
             ).strip()
         except (KeyboardInterrupt, EOFError):
