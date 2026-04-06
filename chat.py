@@ -7261,6 +7261,20 @@ def main():
                 continue
 
             elif cmd == "/tui":
+                # TUI is for Termux/mobile only — PC uses /desktop or full CLI
+                if not os.path.exists("/data/data/com.termux"):
+                    console.print()
+                    console.print(Text.from_markup("  [yellow]⚠ /tui is for Termux (Android) only[/]"))
+                    console.print()
+                    console.print(Text.from_markup("  [dim]Why:[/] TUI mode is a lightweight version for mobile terminals."))
+                    console.print(Text.from_markup("  [dim]On PC you already have the full CLI with 123 commands.[/]"))
+                    console.print()
+                    console.print(Text.from_markup("  [bold]Use instead:[/]"))
+                    console.print(Text.from_markup("    [bright_blue]/desktop[/]  — open the desktop GUI app"))
+                    console.print(Text.from_markup("    [bright_blue]/help[/]     — see all 123 commands"))
+                    console.print()
+                    continue
+
                 tui_paths = [
                     os.path.join(str(Path(__file__).parent), "tui.py"),
                     os.path.join(str(Path.home()), "codegpt", "tui.py"),
