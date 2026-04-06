@@ -513,15 +513,15 @@ pre:hover .copy-btn { opacity: 1; }
 <div class="sidebar">
     <div class="sidebar-header">
         <h2>CHATS</h2>
-        <button class="new-btn" onclick="newChat()">+ New Chat</button>
+        <button class="new-btn" id="newChatBtn">+ New Chat</button>
     </div>
     <div class="chat-list" id="chatList"></div>
     <div class="sidebar-bottom">
         <div class="select-row">
-            <select id="modelSelect" onchange="setModel(this.value)"></select>
+            <select id="modelSelect"></select>
         </div>
         <div class="select-row">
-            <select id="personaSelect" onchange="setPersona(this.value)"></select>
+            <select id="personaSelect"></select>
         </div>
         <div class="sidebar-info" id="sidebarInfo">CodeGPT v2.0</div>
     </div>
@@ -540,13 +540,13 @@ pre:hover .copy-btn { opacity: 1; }
         <div class="welcome" id="welcome">
             <h2 id="greeting"></h2>
             <p>How can I help you today?</p>
-            <div class="chips">
-                <button onclick="go('Explain how REST APIs work')">Explain REST APIs</button>
-                <button onclick="go('Write a Python function to find primes')">Prime numbers</button>
-                <button onclick="go('What are the OWASP top 10?')">OWASP Top 10</button>
-                <button onclick="go('Design a login system with JWT')">JWT Auth</button>
-                <button onclick="go('Compare Flask vs FastAPI')">Flask vs FastAPI</button>
-                <button onclick="go('Write a bash script to backup files')">Backup script</button>
+            <div class="chips" id="chips">
+                <button data-q="Explain how REST APIs work">Explain REST APIs</button>
+                <button data-q="Write a Python function to find primes">Prime numbers</button>
+                <button data-q="What are the OWASP top 10?">OWASP Top 10</button>
+                <button data-q="Design a login system with JWT">JWT Auth</button>
+                <button data-q="Compare Flask vs FastAPI">Flask vs FastAPI</button>
+                <button data-q="Write a bash script to backup files">Backup script</button>
             </div>
         </div>
         <div class="thinking" id="think"><div class="spinner"></div> Thinking...</div>
@@ -555,8 +555,8 @@ pre:hover .copy-btn { opacity: 1; }
     <div class="input-area" style="position:relative">
         <div class="cmd-menu" id="cmdMenu"></div>
         <div class="input-wrap">
-            <textarea id="inp" placeholder="Message CodeGPT... (type / for commands)" rows="1" onkeydown="key(event)" oninput="onInput(event)" autofocus></textarea>
-            <button onclick="send()" id="btn">Send</button>
+            <textarea id="inp" placeholder="Message CodeGPT... (type / for commands)" rows="1" autofocus></textarea>
+            <button id="btn">Send</button>
         </div>
     </div>
     <div class="footer">
@@ -569,9 +569,9 @@ pre:hover .copy-btn { opacity: 1; }
 let busy = false;
 
 async function init() {
-    const name = await pywebview.api.get_username();
-    const h = new Date().getHours();
-    const g = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+    var name = await pywebview.api.get_username();
+    var h = new Date().getHours();
+    var g = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
     document.getElementById('greeting').textContent = g + ', ' + name;
 
     await loadModels();
@@ -579,6 +579,22 @@ async function init() {
     await loadChats();
     checkStatus();
     setInterval(checkStatus, 30000);
+
+    // Bind all events (no onclick attributes — pywebview blocks them)
+    document.getElementById('btn').addEventListener('click', function() { send(); });
+    document.getElementById('newChatBtn').addEventListener('click', function() { newChat(); });
+    document.getElementById('inp').addEventListener('keydown', function(e) { key(e); });
+    document.getElementById('inp').addEventListener('input', function(e) { onInput(e); });
+    document.getElementById('modelSelect').addEventListener('change', function() { setModel(this.value); });
+    document.getElementById('personaSelect').addEventListener('change', function() { setPersona(this.value); });
+
+    // Suggestion chips
+    document.querySelectorAll('#chips button').forEach(function(btn) {
+        btn.addEventListener('click', function() { go(this.getAttribute('data-q')); });
+    });
+
+    // Focus input
+    document.getElementById('inp').focus();
 }
 
 async function checkStatus() {
@@ -600,14 +616,25 @@ async function loadPersonas() {
 }
 
 async function loadChats() {
-    const chats = JSON.parse(await pywebview.api.get_chat_history());
-    const list = document.getElementById('chatList');
-    list.innerHTML = chats.map(c =>
-        '<div class="chat-item" onclick="loadChat(\''+c.id+'\')">' +
-        '<span>'+c.title+'</span>' +
-        '<span class="del" onclick="event.stopPropagation();deleteChat(\''+c.id+'\')">x</span>' +
-        '</div>'
-    ).join('') || '<div style="padding:20px;text-align:center;color:var(--dim);font-size:12px">No chats yet</div>';
+    var chats = JSON.parse(await pywebview.api.get_chat_history());
+    var list = document.getElementById('chatList');
+    list.innerHTML = chats.map(function(c) {
+        return '<div class="chat-item" data-id="'+c.id+'">' +
+            '<span>'+c.title+'</span>' +
+            '<span class="del" data-del="'+c.id+'">x</span>' +
+            '</div>';
+    }).join('') || '<div style="padding:20px;text-align:center;color:var(--dim);font-size:12px">No chats yet</div>';
+
+    // Bind click events via delegation
+    list.querySelectorAll('.chat-item').forEach(function(item) {
+        item.addEventListener('click', function(e) {
+            if (e.target.classList.contains('del')) {
+                deleteChat(e.target.getAttribute('data-del'));
+            } else {
+                loadChat(item.getAttribute('data-id'));
+            }
+        });
+    });
 }
 
 async function loadChat(id) {
@@ -698,10 +725,14 @@ function onInput(e) {
         const matches = typed === '/' ? CMDS : CMDS.filter(c => c.name.startsWith(typed));
         if (matches.length > 0) {
             cmdIdx = 0;
-            menu.innerHTML = matches.map((c, i) =>
-                '<div class="cmd-item'+(i===0?' sel':'')+'" onclick="pickCmd(\\''+c.name+'\\')"><span class="name">'+c.name+'</span><span class="desc">'+c.desc+'</span></div>'
-            ).join('');
+            menu.innerHTML = matches.map(function(c, i) {
+                return '<div class="cmd-item'+(i===0?' sel':'')+'" data-cmd="'+c.name+'"><span class="name">'+c.name+'</span><span class="desc">'+c.desc+'</span></div>';
+            }).join('');
             menu.className = 'cmd-menu show';
+            // Bind clicks
+            menu.querySelectorAll('.cmd-item').forEach(function(item) {
+                item.addEventListener('click', function() { pickCmd(item.getAttribute('data-cmd')); });
+            });
         } else {
             menu.className = 'cmd-menu';
         }
@@ -751,18 +782,33 @@ async function setModel(m) { await pywebview.api.set_model(m); checkStatus(); }
 async function setPersona(p) { await pywebview.api.set_persona(p); }
 
 async function send() {
-    const inp = document.getElementById('inp');
-    const text = inp.value.trim();
+    var inp = document.getElementById('inp');
+    var text = inp.value.trim();
     if (!text || busy) return;
     inp.value = ''; inp.style.height = 'auto';
+
+    // Hide command menu
+    document.getElementById('cmdMenu').className = 'cmd-menu';
+
     busy = true;
     document.getElementById('btn').disabled = true;
-    addMsg('user', text);
+
+    // Show user message (unless slash command)
+    if (!text.startsWith('/')) {
+        addMsg('user', text);
+    }
+
     document.getElementById('think').className = 'thinking on';
 
-    const r = JSON.parse(await pywebview.api.send_message(text));
+    var r = JSON.parse(await pywebview.api.send_message(text));
     document.getElementById('think').className = 'thinking';
-    addMsg('ai', r.content, r.tokens + ' tokens &middot; ' + r.elapsed + 's');
+
+    if (r.is_system) {
+        // Slash command result — show as system message
+        addMsg('ai', r.content, 'command');
+    } else {
+        addMsg('ai', r.content, r.tokens + ' tokens &middot; ' + r.elapsed + 's');
+    }
     document.getElementById('tc').textContent = r.total_tokens.toLocaleString() + ' tokens';
 
     busy = false;
