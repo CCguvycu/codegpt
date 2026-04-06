@@ -661,8 +661,62 @@ def handle_command(text):
                     console.print(Text.from_markup(f"    [bright_blue]{c:<14}[/] [dim]{desc}[/]"))
         console.print()
 
+    # Command exists in autocomplete but not handled in TUI
+    elif cmd[1:] and any(cmd == c for c in TUI_COMMANDS):
+        cli_only = {
+            "/vote": "Runs all agents to vote — needs full agent system",
+            "/swarm": "6-agent pipeline — needs full agent system",
+            "/team": "Group chat with 2 AIs — needs team chat engine",
+            "/room": "Chat room with 3+ AIs — needs room engine",
+            "/spectate": "Watch AIs debate — needs spectate engine",
+            "/dm": "Direct message agent — needs message bus",
+            "/race": "Race all models — needs multi-model runner",
+            "/compare": "Compare 2 models — needs compare engine",
+            "/chain": "Chain prompts — needs chain engine",
+            "/lab": "AI Lab experiments — needs lab module",
+            "/train": "AI Training Lab — needs training system",
+            "/mem": "AI memory — needs memory system",
+            "/skill": "Create custom command — needs skill system",
+            "/skills": "List custom skills — needs skill system",
+            "/auto": "AI creates a skill — needs skill + AI system",
+            "/cron": "Schedule tasks — needs cron system",
+            "/tools": "AI tool integrations — needs tool launcher",
+            "/github": "GitHub tools — needs gh CLI integration",
+            "/spotify": "Spotify controls — needs media key system",
+            "/volume": "System volume — needs OS integration",
+            "/sysinfo": "System info — needs OS queries",
+            "/security": "Security dashboard — needs security module",
+            "/permissions": "Permissions — needs permission system",
+            "/audit": "Audit log — needs security module",
+            "/pin-set": "Set PIN — needs PIN system",
+            "/lock": "Lock session — needs PIN system",
+            "/qr": "QR code — needs qrcode library",
+            "/broadcast": "Message all tools — needs message bus",
+            "/inbox": "Check messages — needs message bus",
+            "/feed": "Message feed — needs message bus",
+            "/monitor": "Live dashboard — needs monitor system",
+            "/hub": "Command center — needs hub system",
+            "/shortcuts": "Keyboard shortcuts — needs shortcut system",
+            "/prompts": "Prompt templates — needs template library",
+            "/desktop": "Desktop app — needs GUI (pywebview)",
+            "/tui": "Already in TUI mode",
+            "/search": "Search conversation — needs search engine",
+            "/diff": "Compare responses — needs diff engine",
+            "/pin": "Pin message — needs pin system",
+            "/pins": "Show pins — needs pin system",
+            "/fork": "Fork conversation — needs fork system",
+            "/compact": "Compact conversation — needs compact system",
+            "/setname": "Set name — needs profile system",
+            "/setbio": "Set bio — needs profile system",
+        }
+        reason = cli_only.get(cmd, "This command needs the full CLI")
+        console.print()
+        console.print(Text.from_markup(f"  [yellow]⚠ {cmd}[/] — [dim]TUI mode only[/]"))
+        console.print(Text.from_markup(f"    [dim]{reason}[/]"))
+        console.print(Text.from_markup(f"    [bright_blue]Run the full CLI:[/] [dim]python chat.py[/]"))
+        console.print()
     else:
-        return None  # Not a command
+        return None  # Unknown command
 
     return True
 
