@@ -7171,6 +7171,17 @@ def main():
                 continue
 
             elif cmd == "/desktop":
+                # Block on Termux — no GUI
+                if os.path.exists("/data/data/com.termux"):
+                    print_err("Desktop app needs a graphical display.")
+                    print_sys("Use the CLI instead — you have all 123 commands here.")
+                    # Clean up broken pywebview if installed
+                    try:
+                        subprocess.run([sys.executable, "-m", "pip", "uninstall", "pywebview", "-y"],
+                                      capture_output=True, timeout=30)
+                    except Exception:
+                        pass
+                    continue
                 # Find desktop.py — check multiple locations
                 desktop_paths = [
                     os.path.join(str(Path(__file__).parent), "desktop.py"),
@@ -7198,8 +7209,8 @@ def main():
 
                 # Install pywebview if needed
                 try:
-                    import webview
-                except ImportError:
+                    import webview  # noqa
+                except (ImportError, Exception):
                     print_sys("Installing pywebview...")
                     subprocess.run(
                         [sys.executable, "-m", "pip", "install", "pywebview"],
