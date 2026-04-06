@@ -7217,40 +7217,46 @@ def main():
                     subprocess.run([sys.executable, tui_py])
                     print_header(model)
                     continue
-                # Find desktop.py — check multiple locations
-                desktop_paths = [
+                # Always ensure desktop.py is at ~/.codegpt/desktop.py (reliable location)
+                desktop_py = os.path.join(str(Path.home()), ".codegpt", "desktop.py")
+
+                # Check source locations first, copy to ~/.codegpt if found
+                source_paths = [
                     os.path.join(str(Path(__file__).parent), "desktop.py"),
                     os.path.join(str(Path.home()), "codegpt", "desktop.py"),
                     os.path.join(str(Path.home()), "OneDrive", "Desktop", "Coding", "claude-chat", "desktop.py"),
                 ]
-                desktop_py = None
-                for dp in desktop_paths:
-                    if os.path.isfile(dp):
-                        desktop_py = dp
-                        break
-
-                if not desktop_py:
-                    # Download it
-                    print_sys("Downloading desktop app...")
-                    desktop_py = os.path.join(str(Path.home()), ".codegpt", "desktop.py")
-                    try:
-                        r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/desktop.py", timeout=15)
+                for sp in source_paths:
+                    if os.path.isfile(sp):
                         Path(desktop_py).parent.mkdir(parents=True, exist_ok=True)
-                        Path(desktop_py).write_text(r.text, encoding="utf-8")
-                        print_success("Downloaded.")
-                    except Exception as e:
-                        print_err(f"Cannot download: {e}")
-                        continue
+                        import shutil as _sh
+                        _sh.copy2(sp, desktop_py)
+                        break
+                else:
+                    # Download from GitHub
+                    if not os.path.isfile(desktop_py):
+                        print_sys("Downloading desktop app...")
+                        try:
+                            r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/desktop.py", timeout=15)
+                            Path(desktop_py).parent.mkdir(parents=True, exist_ok=True)
+                            Path(desktop_py).write_text(r.text, encoding="utf-8")
+                        except Exception as e:
+                            print_err(f"Cannot download: {e}")
+                            continue
 
                 # Install pywebview if needed
                 try:
                     import webview  # noqa
                 except (ImportError, Exception):
                     print_sys("Installing pywebview...")
-                    subprocess.run(
+                    result = subprocess.run(
                         [sys.executable, "-m", "pip", "install", "pywebview"],
                         capture_output=True, text=True, timeout=120,
                     )
+                    if result.returncode != 0:
+                        print_err("Cannot install pywebview.")
+                        print_sys("Try: pip install pywebview")
+                        continue
 
                 print_sys("Launching desktop app...")
                 subprocess.Popen(
