@@ -440,6 +440,7 @@ COMMANDS = {
     "/permissions": "View/reset action permissions",
     "/desktop": "Launch CodeGPT desktop app",
     "/tui": "Launch CodeGPT TUI mode",
+    "/web": "Launch CodeGPT web app in browser",
     "/skill": "Create a custom command (/skill name prompt)",
     "/skills": "List custom skills",
     "/browse": "Browse a URL and summarize (/browse url)",
@@ -7264,6 +7265,52 @@ def main():
                     cwd=str(Path(desktop_py).parent),
                 )
                 print_sys("Desktop app opened in a new window.")
+                continue
+
+            elif cmd == "/web":
+                web_paths = [
+                    os.path.join(str(Path(__file__).parent), "web.py"),
+                    os.path.join(str(Path.home()), "codegpt", "web.py"),
+                ]
+                web_py = None
+                for wp in web_paths:
+                    if os.path.isfile(wp):
+                        web_py = wp
+                        break
+                if not web_py:
+                    try:
+                        web_py = os.path.join(str(Path.home()), ".codegpt", "web.py")
+                        r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/web.py", timeout=15)
+                        Path(web_py).parent.mkdir(parents=True, exist_ok=True)
+                        Path(web_py).write_text(r.text, encoding="utf-8")
+                    except Exception:
+                        print_err("Cannot find web.py.")
+                        continue
+
+                # Install flask if needed
+                try:
+                    import flask  # noqa
+                except (ImportError, Exception):
+                    print_sys("Installing Flask...")
+                    subprocess.run([sys.executable, "-m", "pip", "install", "flask"], capture_output=True, timeout=60)
+
+                print_sys("Starting web app on https://localhost:5050 ...")
+                subprocess.Popen([sys.executable, web_py], cwd=str(Path(web_py).parent))
+
+                # Open browser
+                import webbrowser
+                time.sleep(2)
+                if os.path.exists("/data/data/com.termux"):
+                    try:
+                        subprocess.run(["termux-open-url", "https://localhost:5050"], timeout=5)
+                    except:
+                        subprocess.run(["am", "start", "-a", "android.intent.action.VIEW", "-d", "https://localhost:5050"], timeout=5)
+                elif os.name == "nt":
+                    os.startfile("https://localhost:5050")
+                else:
+                    webbrowser.open("https://localhost:5050")
+
+                print_sys("Web app running. Open https://localhost:5050 in your browser.")
                 continue
 
             elif cmd == "/tui":
