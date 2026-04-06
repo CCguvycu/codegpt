@@ -38,6 +38,7 @@
     "bin/",
     "chat.py",
     "desktop.py",
+    "tui.py",
     "ai_cli/",
     "CLAUDE.md",
     "README.md"

@@ -7171,16 +7171,29 @@ def main():
                 continue
 
             elif cmd == "/desktop":
-                # Block on Termux — no GUI
+                # Termux — launch TUI version instead of GUI
                 if os.path.exists("/data/data/com.termux"):
-                    print_err("Desktop app needs a graphical display.")
-                    print_sys("Use the CLI instead — you have all 123 commands here.")
-                    # Clean up broken pywebview if installed
-                    try:
-                        subprocess.run([sys.executable, "-m", "pip", "uninstall", "pywebview", "-y"],
-                                      capture_output=True, timeout=30)
-                    except Exception:
-                        pass
+                    print_sys("Launching TUI mode (terminal desktop)...")
+                    tui_paths = [
+                        os.path.join(str(Path(__file__).parent), "tui.py"),
+                        os.path.join(str(Path.home()), "codegpt", "tui.py"),
+                    ]
+                    tui_py = None
+                    for tp in tui_paths:
+                        if os.path.isfile(tp):
+                            tui_py = tp
+                            break
+                    if not tui_py:
+                        try:
+                            tui_py = os.path.join(str(Path.home()), ".codegpt", "tui.py")
+                            r = requests.get("https://raw.githubusercontent.com/CCguvycu/codegpt/master/tui.py", timeout=15)
+                            Path(tui_py).parent.mkdir(parents=True, exist_ok=True)
+                            Path(tui_py).write_text(r.text, encoding="utf-8")
+                        except Exception:
+                            print_err("Cannot download TUI. Use the CLI instead.")
+                            continue
+                    subprocess.run([sys.executable, tui_py])
+                    print_header(model)
                     continue
                 # Find desktop.py — check multiple locations
                 desktop_paths = [
