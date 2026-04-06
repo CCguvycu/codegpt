@@ -110,24 +110,22 @@ class Api:
 
         if cmd == "/help":
             return (
-                "**Commands:**\n"
-                "`/new` — New conversation\n"
-                "`/model <name>` — Switch model\n"
-                "`/models` — List models\n"
-                "`/persona <name>` — Switch persona (default, hacker, teacher, roast, architect, minimal)\n"
-                "`/clear` — Clear chat\n"
-                "`/think` — Toggle deep thinking\n"
-                "`/temp <0-2>` — Set temperature\n"
-                "`/system <prompt>` — Set system prompt\n"
-                "`/tokens` — Show token count\n"
-                "`/history` — Show message count\n"
-                "`/server` — Show server info\n"
-                "`/connect <ip>` — Connect to remote Ollama\n"
-                "`/export` — Export chat as text\n"
-                "`/weather <city>` — Get weather\n"
-                "`/open <url>` — Open URL in browser\n"
-                "`/agent <name> <task>` — Run an AI agent\n"
-                "`/browse <url>` — Fetch and summarize a URL\n"
+                "**Chat**\n"
+                "`/new` `/save` `/clear` `/export` `/history` `/compact` `/search`\n\n"
+                "**Model**\n"
+                "`/model` `/models` `/persona` `/think` `/temp` `/system` `/tokens`\n\n"
+                "**AI**\n"
+                "`/agent <name> <task>` — coder, debugger, reviewer, architect, pentester, explainer, optimizer, researcher\n"
+                "`/all <question>` — All 8 agents answer in parallel\n"
+                "`/vote <question>` — Agents vote with consensus\n"
+                "`/swarm <task>` — 4-agent pipeline (architect→coder→reviewer→optimizer)\n"
+                "`/p <template> <text>` — Prompt templates (debug, review, explain...)\n\n"
+                "**Memory**\n"
+                "`/mem save <text>` `/mem list` `/mem clear` `/rate good|bad` `/regen`\n\n"
+                "**Connect**\n"
+                "`/connect <ip>` `/server` `/weather` `/browse <url>` `/open <url>`\n\n"
+                "**Info**\n"
+                "`/usage` `/profile` `/prompts` `/shortcuts` `/sysinfo`\n"
             )
 
         elif cmd == "/new":
@@ -306,6 +304,252 @@ class Api:
                         return f"Agent error: {e}"
                 return f"Unknown agent. Available: {', '.join(agents.keys())}"
             return "Usage: /agent coder build a flask API"
+
+        elif cmd == "/all":
+            if not args:
+                return "Usage: /all what database should I use?"
+            agents = {
+                "coder": "You are an expert programmer. Write clean code.",
+                "debugger": "You are a debugging expert. Find and fix bugs.",
+                "reviewer": "You are a code reviewer. Check bugs, security, performance.",
+                "architect": "You are a system architect. Design with diagrams.",
+                "pentester": "You are an ethical pentester. Find vulnerabilities.",
+                "explainer": "You are a teacher. Explain simply with analogies.",
+                "optimizer": "You are a performance engineer. Optimize code.",
+                "researcher": "You are a research analyst. Deep-dive into topics.",
+            }
+            import threading
+            results = {}
+            def _q(n, s):
+                try:
+                    r = requests.post(OLLAMA_URL, json={"model": self.model, "messages": [
+                        {"role": "system", "content": s}, {"role": "user", "content": args}
+                    ], "stream": False}, timeout=90)
+                    results[n] = r.json().get("message", {}).get("content", "")
+                except: results[n] = "(error)"
+            threads = [threading.Thread(target=_q, args=(n, s), daemon=True) for n, s in agents.items()]
+            for t in threads: t.start()
+            for t in threads: t.join(timeout=90)
+            output = "**All 8 agents responded:**\n\n"
+            for n, resp in results.items():
+                output += f"**{n}:** {resp[:150]}...\n\n"
+            return output
+
+        elif cmd == "/vote":
+            if not args:
+                return "Usage: /vote Flask or FastAPI?"
+            agents = {"coder": "Expert programmer", "architect": "System architect",
+                      "reviewer": "Code reviewer", "pentester": "Security expert"}
+            results = {}
+            for n, desc in agents.items():
+                try:
+                    r = requests.post(OLLAMA_URL, json={"model": self.model, "messages": [
+                        {"role": "system", "content": f"You are a {desc}. Answer in 1-2 sentences with confidence: HIGH/MEDIUM/LOW."},
+                        {"role": "user", "content": args}
+                    ], "stream": False}, timeout=60)
+                    results[n] = r.json().get("message", {}).get("content", "")
+                except: results[n] = "(error)"
+            output = "**Agent Votes:**\n\n"
+            for n, resp in results.items():
+                output += f"**{n}:** {resp}\n\n"
+            return output
+
+        elif cmd == "/swarm":
+            if not args:
+                return "Usage: /swarm build a REST API with auth"
+            pipeline = [
+                ("architect", "Design the approach.", "You are a system architect."),
+                ("coder", "Implement the solution.", "You are an expert programmer."),
+                ("reviewer", "Review for bugs.", "You are a code reviewer."),
+                ("optimizer", "Optimize performance.", "You are a performance engineer."),
+            ]
+            accumulated = f"Task: {args}"
+            output = "**Swarm Pipeline:**\n\n"
+            for name, instruction, sys_p in pipeline:
+                try:
+                    r = requests.post(OLLAMA_URL, json={"model": self.model, "messages": [
+                        {"role": "system", "content": sys_p},
+                        {"role": "user", "content": f"{instruction}\n\nContext:\n{accumulated}"}
+                    ], "stream": False}, timeout=90)
+                    resp = r.json().get("message", {}).get("content", "")
+                    output += f"**Step: {name}**\n{resp}\n\n"
+                    accumulated += f"\n\n{name}: {resp}"
+                except: output += f"**{name}:** (error)\n\n"
+            return output
+
+        elif cmd == "/save":
+            if not self.messages:
+                return "Nothing to save."
+            self._auto_save()
+            return f"Saved ({len(self.messages)} messages)."
+
+        elif cmd == "/copy":
+            ai_msgs = [m for m in self.messages if m["role"] == "assistant"]
+            if ai_msgs:
+                return "**Last response copied to clipboard** (use Ctrl+C in the response)"
+            return "No response to copy."
+
+        elif cmd == "/regen":
+            if self.messages and self.messages[-1]["role"] == "assistant":
+                self.messages.pop()
+                if self.messages and self.messages[-1]["role"] == "user":
+                    last_q = self.messages.pop()["content"]
+                    return self.send_message(last_q)
+            return "Nothing to regenerate."
+
+        elif cmd == "/compact":
+            if len(self.messages) < 4:
+                return "Not enough messages to compact."
+            try:
+                r = requests.post(OLLAMA_URL, json={"model": self.model, "messages": [
+                    {"role": "user", "content": "Summarize this conversation in 3-5 bullet points:\n" +
+                     "\n".join(f"{m['role']}: {m['content'][:200]}" for m in self.messages)}
+                ], "stream": False}, timeout=60)
+                summary = r.json().get("message", {}).get("content", "")
+                keep = self.messages[-4:]
+                self.messages = [{"role": "assistant", "content": f"[Summary]\n{summary}"}] + keep
+                return f"Compacted: {len(self.messages)} messages remaining."
+            except: return "Compact failed."
+
+        elif cmd == "/rate":
+            rating = args.lower() if args else ""
+            if rating in ("good", "bad", "+", "-"):
+                ratings_file = Path.home() / ".codegpt" / "ratings.json"
+                ratings = []
+                if ratings_file.exists():
+                    try: ratings = json.loads(ratings_file.read_text())
+                    except: pass
+                ai_msgs = [m for m in self.messages if m["role"] == "assistant"]
+                if ai_msgs:
+                    ratings.append({"rating": "good" if rating in ("good", "+") else "bad",
+                                    "response": ai_msgs[-1]["content"][:200],
+                                    "timestamp": datetime.now().isoformat()})
+                    ratings_file.parent.mkdir(parents=True, exist_ok=True)
+                    ratings_file.write_text(json.dumps(ratings))
+                    return f"Rated: **{rating}** ({len(ratings)} total)"
+            return "Usage: /rate good  or  /rate bad"
+
+        elif cmd == "/usage":
+            profile = {}
+            if profile_file.exists():
+                try: profile = json.loads(profile_file.read_text())
+                except: pass
+            return (
+                f"**Session:** {self.total_tokens} tokens, {len(self.messages)} messages\n"
+                f"**Model:** {self.model}\n"
+                f"**Persona:** {self.persona}\n\n"
+                f"**Lifetime:** {profile.get('total_messages', 0)} messages, "
+                f"{profile.get('total_sessions', 0)} sessions"
+            )
+
+        elif cmd == "/profile":
+            profile = {}
+            if profile_file.exists():
+                try: profile = json.loads(profile_file.read_text())
+                except: pass
+            return (
+                f"**{profile.get('name', 'User')}**\n"
+                f"Bio: {profile.get('bio', 'not set')}\n"
+                f"Model: {profile.get('model', MODEL)}\n"
+                f"Persona: {profile.get('persona', 'default')}\n"
+                f"Sessions: {profile.get('total_sessions', 0)}"
+            )
+
+        elif cmd == "/search":
+            if not args:
+                return "Usage: /search keyword"
+            matches = [m for m in self.messages if args.lower() in m["content"].lower()]
+            if matches:
+                output = f"**{len(matches)} matches for '{args}':**\n\n"
+                for m in matches[:5]:
+                    role = "You" if m["role"] == "user" else "AI"
+                    pos = m["content"].lower().find(args.lower())
+                    snippet = m["content"][max(0,pos-30):pos+len(args)+30]
+                    output += f"**{role}:** ...{snippet}...\n"
+                return output
+            return f"No matches for '{args}'."
+
+        elif cmd == "/mem":
+            parts = args.split(maxsplit=1)
+            sub = parts[0] if parts else ""
+            mem_file = Path.home() / ".codegpt" / "memory" / "memories.json"
+
+            if sub == "save" and len(parts) >= 2:
+                mems = []
+                if mem_file.exists():
+                    try: mems = json.loads(mem_file.read_text())
+                    except: pass
+                mems.append({"content": parts[1], "timestamp": datetime.now().isoformat()})
+                mem_file.parent.mkdir(parents=True, exist_ok=True)
+                mem_file.write_text(json.dumps(mems))
+                return f"Remembered ({len(mems)} memories)."
+            elif sub == "list" or sub == "recall":
+                if mem_file.exists():
+                    mems = json.loads(mem_file.read_text())
+                    if mems:
+                        output = f"**{len(mems)} memories:**\n\n"
+                        for m in mems[-10:]:
+                            output += f"- {m['content']}\n"
+                        return output
+                return "No memories saved."
+            elif sub == "clear":
+                if mem_file.exists(): mem_file.write_text("[]")
+                return "All memories cleared."
+            return "Usage: /mem save <text>, /mem list, /mem clear"
+
+        elif cmd == "/prompts":
+            templates = {
+                "explain": "Explain this concept clearly: ",
+                "debug": "Debug this code: ",
+                "review": "Review this code: ",
+                "refactor": "Refactor this code: ",
+                "test": "Write tests for: ",
+                "optimize": "Optimize this code: ",
+                "security": "Check for vulnerabilities: ",
+            }
+            output = "**Prompt Templates:**\n\n"
+            for name, prefix in templates.items():
+                output += f"`/p {name} <text>` — {prefix}\n"
+            return output
+
+        elif cmd == "/p":
+            parts = args.split(maxsplit=1)
+            if len(parts) >= 2:
+                templates = {
+                    "explain": "Explain this concept clearly with examples: ",
+                    "debug": "Debug this code. Find bugs and fix them: ",
+                    "review": "Review this code for quality, security, performance: ",
+                    "refactor": "Refactor this code to be cleaner: ",
+                    "test": "Write unit tests for this code: ",
+                    "optimize": "Optimize this code for performance: ",
+                    "security": "Analyze for security vulnerabilities: ",
+                }
+                if parts[0] in templates:
+                    full = templates[parts[0]] + parts[1]
+                    return json.loads(self.send_message(full)).get("content", "")
+            return "Usage: /p debug my_function()"
+
+        elif cmd == "/sysinfo":
+            import platform
+            return (
+                f"**System:**\n"
+                f"OS: {platform.system()} {platform.release()}\n"
+                f"Machine: {platform.machine()}\n"
+                f"Python: {platform.python_version()}\n"
+                f"Host: {platform.node()}"
+            )
+
+        elif cmd == "/shortcuts":
+            return (
+                "**Keyboard Shortcuts:**\n"
+                "`Enter` — Send message\n"
+                "`Shift+Enter` — New line\n"
+                "`Ctrl+N` — New chat\n"
+                "`/` — Show command menu\n"
+                "`Arrow Up/Down` — Navigate command menu\n"
+                "`Tab` — Select command\n"
+                "`Escape` — Close command menu"
+            )
 
         return None  # Not a command — send as regular message
 
