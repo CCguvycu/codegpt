@@ -33,14 +33,63 @@ PERSONAS = {
     "minimal": "Shortest answer possible. Code only. No commentary.",
 }
 
-# Load saved URL
+def _try(url):
+    try:
+        r = requests.get(url.replace("/api/chat", "/api/tags"), timeout=2)
+        return r.status_code == 200
+    except:
+        return False
+
+# Auto-connect — try saved URL, localhost, common LAN IPs
+_connected = False
+
+# 1. Saved URL
 saved_url = Path.home() / ".codegpt" / "ollama_url"
 if saved_url.exists():
     url = saved_url.read_text().strip()
     if url:
-        OLLAMA_URL = url
-        if "/api/chat" not in OLLAMA_URL:
-            OLLAMA_URL = OLLAMA_URL.rstrip("/") + "/api/chat"
+        if "/api/chat" not in url:
+            url = url.rstrip("/") + "/api/chat"
+        if _try(url):
+            OLLAMA_URL = url
+            _connected = True
+
+# 2. Localhost
+if not _connected and _try(OLLAMA_URL):
+    _connected = True
+
+# 3. Common LAN IPs — scan for Ollama on the network
+if not _connected:
+    for ip in ["192.168.1.237", "192.168.1.1", "192.168.0.1", "10.0.2.2",
+               "192.168.1.100", "192.168.1.50", "192.168.0.100", "192.168.0.50"]:
+        test = f"http://{ip}:11434/api/chat"
+        if _try(test):
+            OLLAMA_URL = test
+            # Save for next time
+            Path.home().joinpath(".codegpt").mkdir(parents=True, exist_ok=True)
+            Path.home().joinpath(".codegpt", "ollama_url").write_text(OLLAMA_URL)
+            _connected = True
+            break
+
+# 4. Quick subnet scan (192.168.1.x)
+if not _connected:
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        my_ip = s.getsockname()[0]
+        s.close()
+        subnet = ".".join(my_ip.split(".")[:3])
+        for last in range(1, 20):  # Scan .1 to .19
+            test = f"http://{subnet}.{last}:11434/api/chat"
+            if _try(test):
+                OLLAMA_URL = test
+                Path.home().joinpath(".codegpt").mkdir(parents=True, exist_ok=True)
+                Path.home().joinpath(".codegpt", "ollama_url").write_text(OLLAMA_URL)
+                _connected = True
+                break
+    except:
+        pass
 
 # Load profile
 profile_file = Path.home() / ".codegpt" / "profiles" / "cli_profile.json"

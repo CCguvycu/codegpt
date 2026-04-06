@@ -5009,14 +5009,35 @@ def main():
         except Exception:
             pass
 
-    # Try 3: Check common remote addresses
+    # Try 3: Check common remote addresses + subnet scan
     if not available_models:
-        for remote in ["http://192.168.1.237:11434/api/chat",
-                       "http://10.0.2.2:11434/api/chat"]:
+        scan_ips = ["192.168.1.237", "10.0.2.2", "192.168.1.1", "192.168.0.1",
+                    "192.168.1.100", "192.168.1.50", "192.168.0.100"]
+        # Add subnet scan
+        try:
+            import socket as _sock
+            _s = _sock.socket(_sock.AF_INET, _sock.SOCK_DGRAM)
+            _s.connect(("8.8.8.8", 80))
+            _my_ip = _s.getsockname()[0]
+            _s.close()
+            _subnet = ".".join(_my_ip.split(".")[:3])
+            for _last in range(1, 20):
+                _ip = f"{_subnet}.{_last}"
+                if _ip not in scan_ips:
+                    scan_ips.append(_ip)
+        except Exception:
+            pass
+
+        for ip in scan_ips:
+            remote = f"http://{ip}:11434/api/chat"
             models = try_connect(remote)
             if models:
                 OLLAMA_URL = remote
                 available_models = models
+                # Save for next time
+                config_file = Path.home() / ".codegpt" / "ollama_url"
+                config_file.parent.mkdir(parents=True, exist_ok=True)
+                config_file.write_text(OLLAMA_URL)
                 break
 
     # Try 4: Load saved URL from last session
