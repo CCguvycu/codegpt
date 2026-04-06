@@ -565,49 +565,8 @@ pre:hover .copy-btn { opacity: 1; }
     </div>
 </div>
 
-<div id="welcomeModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center">
-    <div style="background:#161b22;border:1px solid #30363d;border-radius:16px;padding:32px 40px;max-width:480px;width:90%;text-align:center">
-        <h2 style="font-size:22px;margin-bottom:4px"><span style="color:#f85149">Code</span><span style="color:#58a6ff">GPT</span> Desktop</h2>
-        <p style="color:#7d8590;font-size:13px;margin-bottom:20px">v2.0 &middot; Local AI &middot; Powered by Ollama</p>
-        <div style="text-align:left;margin:16px 0">
-            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">123</span> commands <span style="color:#7d8590">type / to see all</span></p>
-            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">8</span> AI agents <span style="color:#7d8590">coder, reviewer, architect</span></p>
-            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">26</span> tools <span style="color:#7d8590">Claude, Codex, Gemini</span></p>
-            <p style="padding:6px 0;font-size:14px"><span style="color:#58a6ff;font-weight:700;margin-right:10px">6</span> personas <span style="color:#7d8590">hacker, teacher, minimal</span></p>
-        </div>
-        <p style="color:#7d8590;font-size:12px;margin-top:16px">Click anywhere or wait to start</p>
-    </div>
-</div>
-
 <script>
 let busy = false;
-
-// Welcome — auto-dismiss after 3 seconds, or click/key
-var _welcomed = false;
-function _dismissWelcome() {
-    if (_welcomed) return;
-    _welcomed = true;
-    var m = document.getElementById('welcomeModal');
-    if (m) {
-        m.style.display = 'none';
-        m.style.visibility = 'hidden';
-        m.style.pointerEvents = 'none';
-        m.style.opacity = '0';
-        try { m.parentNode.removeChild(m); } catch(e) {}
-    }
-    // Clean up listeners
-    document.removeEventListener('mousedown', _dismissWelcome);
-    document.removeEventListener('keydown', _dismissWelcome);
-    if (_dismissTimer) clearTimeout(_dismissTimer);
-    // Focus input
-    setTimeout(function() {
-        var inp = document.getElementById('inp');
-        if (inp) inp.focus();
-    }, 100);
-}
-var _dismissTimer = setTimeout(_dismissWelcome, 3000);
-document.addEventListener('mousedown', _dismissWelcome);
-document.addEventListener('keydown', _dismissWelcome);
 
 async function init() {
     const name = await pywebview.api.get_username();
