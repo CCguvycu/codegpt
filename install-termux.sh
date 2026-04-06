@@ -190,7 +190,7 @@ cat > "$HOME/.shortcuts/CodeGPT" << 'SHORTCUT'
 #!/data/data/com.termux/files/usr/bin/bash
 command -v ollama &>/dev/null && ! curl -s http://localhost:11434/api/tags &>/dev/null 2>&1 && ollama serve &>/dev/null &
 sleep 1
-ai
+cd ~/codegpt && python chat.py
 SHORTCUT
 chmod +x "$HOME/.shortcuts/CodeGPT"
 
