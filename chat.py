@@ -58,6 +58,13 @@ CHATS_DIR = Path.home() / ".codegpt" / "conversations"
 
 TOOL_VENVS_DIR = Path.home() / ".codegpt" / "tool-venvs"
 
+# Single lock for all tool venv operations. Tool installs are minutes-long
+# and naturally serialized in single-user CLI flow, but features like /split
+# or /grid can spawn concurrent install paths from different threads. One
+# global lock eliminates the race entirely; per-tool granularity isn't worth
+# the bookkeeping when each install is already O(seconds) at best.
+_tool_venv_lock = threading.Lock()
+
 
 def tool_venv_dir(key):
     return TOOL_VENVS_DIR / key
@@ -90,13 +97,17 @@ def tool_venv_bin(key, name):
 
 def _ensure_uv():
     """Ensure uv is importable as a Python module. Installs to user site if missing.
-    Returns True on success, False on failure."""
+
+    Returns (ok: bool, error: str). The error string is empty on success and
+    contains decoded stderr from the bootstrap pip install on failure so the
+    caller can surface a real diagnosis instead of a generic message.
+    """
     try:
         subprocess.run(
             [sys.executable, "-c", "import uv"],
             check=True, capture_output=True,
         )
-        return True
+        return True, ""
     except Exception:
         pass
     try:
@@ -104,9 +115,19 @@ def _ensure_uv():
             [sys.executable, "-m", "pip", "install", "--user", "uv"],
             check=True, capture_output=True, timeout=180,
         )
-        return True
-    except Exception:
-        return False
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "uv bootstrap timed out (3min) — check network."
+    except subprocess.CalledProcessError as ex:
+        stderr = ""
+        if ex.stderr:
+            try:
+                stderr = ex.stderr.decode("utf-8", errors="replace") if isinstance(ex.stderr, bytes) else str(ex.stderr)
+            except Exception:
+                stderr = ""
+        return False, f"pip install --user uv failed (exit {ex.returncode}): {stderr.strip()[:300]}"
+    except Exception as ex:
+        return False, f"uv bootstrap error: {str(ex)[:300]}"
 
 
 def ensure_tool_venv(key, python_version=None):
@@ -123,10 +144,11 @@ def ensure_tool_venv(key, python_version=None):
     TOOL_VENVS_DIR.mkdir(parents=True, exist_ok=True)
 
     if python_version:
-        if not _ensure_uv():
+        ok, uv_err = _ensure_uv()
+        if not ok:
             raise RuntimeError(
                 f"Tool {key} requires Python {python_version} via uv, "
-                f"but uv could not be installed. Run: pip install --user uv"
+                f"but uv could not be installed: {uv_err}"
             )
         # uv handles both fetching the interpreter and creating the venv.
         subprocess.run(
@@ -173,6 +195,20 @@ def install_in_tool_venv(key, install_cmd, python_version=None):
         except Exception:
             pass
 
+    # Pre-create the tool venv dir so the install.log path referenced by
+    # error handlers is always writable, even if ensure_tool_venv() fails
+    # before any other write touches the directory.
+    try:
+        tool_venv_dir(key).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    # Serialize all venv operations to prevent races between concurrent
+    # tool installs (e.g. /split aider mentat). Each install is O(seconds-
+    # to-minutes) so the lock is effectively free at the granularity that
+    # matters.
+    if not _tool_venv_lock.acquire(timeout=900):
+        return False, "Another tool install is in progress (15min lock timeout)."
     try:
         ensure_tool_venv(key, python_version=python_version)
         py = tool_venv_python(key)
@@ -211,7 +247,9 @@ def install_in_tool_venv(key, install_cmd, python_version=None):
         err = (r.stderr or "").strip() or (r.stdout or "").strip()
         short = err.splitlines()[-1] if err else f"exit {r.returncode}"
         return False, f"{short[:300]}\n  Full log: {log_path}"
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as ex:
+        # Pre-created tool dir guarantees the log path is writable here.
+        _write_log(f"Install timed out (15min): {ex}")
         return False, f"Install timed out (15min). Log: {log_path}"
     except subprocess.CalledProcessError as ex:
         # Catches venv-creation / uv-bootstrap failure (check=True paths).
@@ -227,6 +265,11 @@ def install_in_tool_venv(key, install_cmd, python_version=None):
     except Exception as ex:
         _write_log(f"Unexpected error: {ex}")
         return False, str(ex)[:400]
+    finally:
+        try:
+            _tool_venv_lock.release()
+        except RuntimeError:
+            pass
 
 
 def repair_tool_venv(key):
