@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -46,6 +47,139 @@ for _p in _extra_paths:
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL = "llama3.2"
 CHATS_DIR = Path.home() / ".codegpt" / "conversations"
+
+# --- Per-tool venv isolation ----------------------------------------------
+# Some pip-based tools (aider, open-interpreter, mentat, gpt-engineer) pull
+# in heavy native deps like tiktoken. On Python 3.13 these can fail to build
+# in the global site-packages, AND when they DO succeed they pin clobber
+# CodeGPT's own dependency versions. Solution: each "isolated" tool gets its
+# own venv under ~/.codegpt/tool-venvs/<key>/, completely cut off from the
+# host Python. The launch path then runs the venv's bin instead of PATH lookup.
+
+TOOL_VENVS_DIR = Path.home() / ".codegpt" / "tool-venvs"
+
+
+def tool_venv_dir(key):
+    return TOOL_VENVS_DIR / key
+
+
+def tool_venv_python(key):
+    """Path to the python executable inside a tool's venv."""
+    venv = tool_venv_dir(key)
+    if os.name == "nt":
+        return venv / "Scripts" / "python.exe"
+    return venv / "bin" / "python"
+
+
+def tool_venv_bin(key, name):
+    """Path to a binary (e.g. 'aider') inside a tool's venv. Returns None if missing."""
+    venv = tool_venv_dir(key)
+    if os.name == "nt":
+        candidates = [
+            venv / "Scripts" / f"{name}.exe",
+            venv / "Scripts" / f"{name}.cmd",
+            venv / "Scripts" / name,
+        ]
+    else:
+        candidates = [venv / "bin" / name]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def ensure_tool_venv(key):
+    """Create a venv for a tool if missing. Returns (venv_path, created_now: bool)."""
+    venv = tool_venv_dir(key)
+    if venv.exists() and tool_venv_python(key).exists():
+        return venv, False
+    TOOL_VENVS_DIR.mkdir(parents=True, exist_ok=True)
+    # Use the host Python to create the venv. Future improvement: probe for
+    # an alternate Python (3.11/3.12) if the host is on a version with broken
+    # wheels for the target tool.
+    subprocess.run(
+        [sys.executable, "-m", "venv", str(venv)],
+        check=True,
+        capture_output=True,
+    )
+    return venv, True
+
+
+def is_isolated_tool(tool):
+    """A tool should be installed in its own venv if it sets isolated=True."""
+    return bool(tool.get("isolated"))
+
+
+def install_in_tool_venv(key, install_cmd):
+    """Install a pip-based tool inside its own venv at ~/.codegpt/tool-venvs/<key>/.
+
+    install_cmd is the original list starting with 'pip' or 'pip3'. Returns
+    (ok: bool, error: str). Manual-venv-only by design: pipx would put the
+    bin in a different directory than tool_venv_bin() expects, breaking the
+    discovery + /repair-tool symmetry.
+    """
+    # Strip leading 'pip' / 'pip3' and the literal 'install' keyword to
+    # extract the package args (which may include flags or VCS URLs).
+    pkg_args = [a for a in install_cmd[1:] if a != "install"]
+
+    try:
+        ensure_tool_venv(key)
+        py = tool_venv_python(key)
+        # Upgrade pip inside the venv first to avoid old-pip wheel issues.
+        subprocess.run(
+            [str(py), "-m", "pip", "install", "--upgrade", "pip"],
+            capture_output=True, timeout=120,
+        )
+        r = subprocess.run(
+            [str(py), "-m", "pip", "install", *pkg_args],
+            capture_output=True, text=True, timeout=600,
+        )
+        if r.returncode == 0:
+            return True, ""
+        err = (r.stderr or "").strip() or (r.stdout or "").strip()
+        return False, err[:400] or f"pip exit {r.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, "Install timed out (10min)"
+    except subprocess.CalledProcessError as ex:
+        # Catches venv-creation failure (ensure_tool_venv uses check=True).
+        # CalledProcessError stashes stderr as bytes — decode for visibility.
+        stderr = ""
+        if ex.stderr:
+            try:
+                stderr = ex.stderr.decode("utf-8", errors="replace") if isinstance(ex.stderr, bytes) else str(ex.stderr)
+            except Exception:
+                stderr = ""
+        msg = f"venv create failed (exit {ex.returncode}): {stderr.strip()}"
+        return False, msg[:400]
+    except Exception as ex:
+        return False, str(ex)[:400]
+
+
+def repair_tool_venv(key):
+    """Wipe and recreate a tool's venv. Used by /repair-tool for upgrade or
+    breakage recovery. Returns True if the venv directory was removed."""
+    venv = tool_venv_dir(key)
+    if venv.exists():
+        shutil.rmtree(venv, ignore_errors=True)
+        return True
+    return False
+
+
+def shell_join(parts):
+    """Cross-platform shell-quote join for shell=True subprocess calls.
+
+    Critical when tool_bin is an absolute path that may contain spaces
+    (e.g. C:\\Users\\John Doe\\.codegpt\\tool-venvs\\aider\\Scripts\\aider.exe).
+    Without quoting, the shell tokenizes on the space and runs the wrong
+    binary. Uses subprocess.list2cmdline on Windows (cmd.exe rules) and
+    shlex.join on POSIX.
+    """
+    if os.name == "nt":
+        return subprocess.list2cmdline([str(p) for p in parts])
+    return shlex.join([str(p) for p in parts])
+
+
+# --- End per-tool venv isolation ------------------------------------------
 SYSTEM_PROMPT = """You are an AI modeled after a highly technical, system-focused developer mindset.
 
 Communication:
@@ -133,6 +267,7 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
         "termux": True,
+        "isolated": True,  # Heavy native deps (tiktoken) — needs own venv
     },
     "interpreter": {
         "name": "Open Interpreter",
@@ -142,6 +277,7 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY (or --local)",
         "termux": True,
+        "isolated": True,  # litellm + tiktoken pin clashes with CodeGPT deps
     },
     "gpt-engineer": {
         "name": "GPT Engineer",
@@ -151,6 +287,7 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
         "termux": True,
+        "isolated": True,  # langchain + tiktoken — same isolation reason
     },
     "mentat": {
         "name": "Mentat",
@@ -160,6 +297,7 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
         "termux": True,
+        "isolated": True,  # tiktoken + openai SDK pin
     },
     # --- Works everywhere (npm — pure JS) ---
     "opencommit": {
@@ -403,6 +541,7 @@ COMMANDS = {
     "/railway": "Launch Railway (deploy)",
     "/wrangler": "Launch Wrangler (Cloudflare)",
     "/tools": "List all AI tools",
+    "/repair-tool": "Wipe + reinstall a broken isolated tool venv (/repair-tool aider)",
     "/bg": "Launch tool in new window (/bg claude)",
     "/split": "Split screen tools (/split claude codex)",
     "/splitv": "Vertical split (/splitv claude gemini)",
@@ -5276,6 +5415,33 @@ def main():
                 print_header(model)
                 continue
 
+            elif cmd in ("/repair-tool", "/repair"):
+                target = user_input[len(cmd):].strip()
+                if not target:
+                    isolated_keys = [k for k, t in AI_TOOLS.items() if is_isolated_tool(t)]
+                    print_sys(
+                        "Usage: /repair-tool <name>  (wipes + reinstalls the tool's isolated venv)\n"
+                        f"  Isolated tools: {', '.join(isolated_keys)}"
+                    )
+                    continue
+                if target not in AI_TOOLS:
+                    print_err(f"Unknown tool: {target}")
+                    continue
+                if not is_isolated_tool(AI_TOOLS[target]):
+                    print_err(f"{target} is not an isolated tool — use the regular install path.")
+                    continue
+                if not ask_permission("tool_install", f"Wipe and reinstall {target} venv"):
+                    continue
+                removed = repair_tool_venv(target)
+                print_sys(f"{'Wiped' if removed else 'No existing venv for'} {target}. Reinstalling...")
+                ok, err = install_in_tool_venv(target, list(AI_TOOLS[target]["install"]))
+                if ok:
+                    print_sys(f"✓ {target} repaired. Run /{target} to launch.")
+                    audit_log("TOOL_REPAIR", target)
+                else:
+                    print_err(f"Repair failed: {err}")
+                continue
+
             elif cmd == "/file":
                 file_path = user_input[len("/file "):].strip()
                 if file_path and ask_permission("file_read", file_path):
@@ -6386,7 +6552,20 @@ def main():
                     continue
                 tool_args = user_input[len(cmd):].strip()
 
-                if shutil.which(tool_bin):
+                # Resolve binary: for isolated tools, the venv shim wins over
+                # any stale global install on PATH. tool_bin gets rebound to
+                # the absolute venv path so all downstream subprocess calls
+                # use the right interpreter.
+                resolved_bin = None
+                if is_isolated_tool(tool):
+                    venv_bin = tool_venv_bin(tool_key, tool["bin"])
+                    if venv_bin:
+                        resolved_bin = str(venv_bin)
+                if not resolved_bin:
+                    resolved_bin = shutil.which(tool_bin)
+
+                if resolved_bin:
+                    tool_bin = resolved_bin  # use absolute path everywhere downstream
                     if not ask_permission("tool_launch", f"Launch {tool['name']}"):
                         continue
 
@@ -6418,7 +6597,7 @@ def main():
                         launch_cmd = [tool_bin] + tool.get("default_args", [])
                         if tool_args:
                             launch_cmd.append(tool_args)
-                        subprocess.run(" ".join(launch_cmd), shell=True, cwd=project_dir, env=tool_env)
+                        subprocess.run(shell_join(launch_cmd), shell=True, cwd=project_dir, env=tool_env)
                     else:
                         tool_sandbox = Path.home() / ".codegpt" / "sandbox" / tool_key
                         tool_sandbox.mkdir(parents=True, exist_ok=True)
@@ -6455,7 +6634,7 @@ def main():
                         launch_cmd = [tool_bin] + tool.get("default_args", [])
                         if tool_args:
                             launch_cmd.append(tool_args)
-                        subprocess.run(" ".join(launch_cmd), shell=True, cwd=str(tool_sandbox), env=tool_env)
+                        subprocess.run(shell_join(launch_cmd), shell=True, cwd=str(tool_sandbox), env=tool_env)
 
                     print_sys("Back to CodeGPT.")
                     audit_log(f"TOOL_EXIT", tool_key)
@@ -6468,9 +6647,36 @@ def main():
                     else:
                         install_cmd = list(tool["install"])
 
-                    if not ask_permission("tool_install", f"Install {tool['name']} via {' '.join(install_cmd[:3])}"):
+                    # Isolated install routing: pip-based tools marked
+                    # `isolated=True` go through their own venv instead of
+                    # the global site-packages. This prevents tiktoken /
+                    # langchain pin clashes from breaking CodeGPT itself.
+                    use_isolated = (
+                        is_isolated_tool(tool)
+                        and len(install_cmd) > 0
+                        and install_cmd[0] in ("pip", "pip3")
+                    )
+
+                    # Guard: isolated mode is pip-only. If a tool is marked
+                    # isolated but its install command isn't pip-based (npm,
+                    # pkg, winget, etc.), refuse rather than silently falling
+                    # back to a global install which would defeat isolation.
+                    if is_isolated_tool(tool) and not use_isolated:
+                        print_err(
+                            f"{tool['name']} is marked isolated but install_cmd "
+                            f"is not pip-based ({install_cmd[0]}). "
+                            f"Remove `isolated=True` from the tool config or fix the install command."
+                        )
                         continue
-                    print_sys(f"Installing {tool['name']}...")
+
+                    install_label = (
+                        f"Install {tool['name']} in isolated venv"
+                        if use_isolated
+                        else f"Install {tool['name']} via {' '.join(install_cmd[:3])}"
+                    )
+                    if not ask_permission("tool_install", install_label):
+                        continue
+                    print_sys(f"Installing {tool['name']}{' (isolated venv)' if use_isolated else ''}...")
 
                     is_npm = install_cmd[0] in ("npm", "npm.cmd")
 
@@ -6481,18 +6687,22 @@ def main():
                     install_ok = [False]
                     install_err = [""]
 
-                    def do_tool_install(cmd_list=install_cmd):
+                    def do_tool_install(cmd_list=install_cmd, isolated=use_isolated, key=tool_key):
                         try:
-                            r = subprocess.run(
-                                cmd_list, capture_output=True, text=True,
-                                timeout=300, shell=True,
-                            )
-                            install_ok[0] = r.returncode == 0
-                            if not install_ok[0]:
-                                # Show both stderr and stdout for better debugging
-                                err = r.stderr.strip() if r.stderr else ""
-                                out = r.stdout.strip() if r.stdout else ""
-                                install_err[0] = err[:300] or out[:300] or f"Exit code {r.returncode}"
+                            if isolated:
+                                ok, err = install_in_tool_venv(key, cmd_list)
+                                install_ok[0] = ok
+                                install_err[0] = err
+                            else:
+                                r = subprocess.run(
+                                    cmd_list, capture_output=True, text=True,
+                                    timeout=300, shell=True,
+                                )
+                                install_ok[0] = r.returncode == 0
+                                if not install_ok[0]:
+                                    err = r.stderr.strip() if r.stderr else ""
+                                    out = r.stdout.strip() if r.stdout else ""
+                                    install_err[0] = err[:300] or out[:300] or f"Exit code {r.returncode}"
                         except subprocess.TimeoutExpired:
                             install_err[0] = "Timed out (5min)"
                         except Exception as e:
@@ -6529,6 +6739,15 @@ def main():
                     if install_ok[0]:
                         elapsed = time.time() - start_t
 
+                        # Audit the install ASAP — covers all bin-discovery
+                        # outcomes including the "installed but bin not found"
+                        # error path. Tag isolated installs distinctly so the
+                        # audit log preserves the install method.
+                        audit_log(
+                            "TOOL_INSTALL",
+                            f"{tool_key}{' isolated' if use_isolated else ''}",
+                        )
+
                         # Rehash PATH — find newly installed binaries
                         for _p in [
                             os.path.expanduser("~/.local/bin"),
@@ -6539,8 +6758,16 @@ def main():
                             if os.path.isdir(_p) and _p not in os.environ.get("PATH", ""):
                                 os.environ["PATH"] = _p + os.pathsep + os.environ["PATH"]
 
-                        # Try to find the binary
-                        found_bin = shutil.which(tool_bin)
+                        # Try to find the binary — for isolated tools, the
+                        # venv's bin always wins over PATH (PATH might point
+                        # at a stale global install from a previous run).
+                        found_bin = None
+                        if is_isolated_tool(tool):
+                            venv_bin = tool_venv_bin(tool_key, tool_bin)
+                            if venv_bin:
+                                found_bin = str(venv_bin)
+                        if not found_bin:
+                            found_bin = shutil.which(tool_bin)
 
                         # Fallback: search common install locations
                         if not found_bin:
@@ -6570,15 +6797,13 @@ def main():
 
                         if found_bin:
                             print_sys(f"Installed in {elapsed:.1f}s. Launching...")
-                            audit_log(f"TOOL_INSTALL", tool_key)
                             launch_cmd = [found_bin] + tool.get("default_args", [])
-                            subprocess.run(" ".join(launch_cmd), shell=True)
+                            subprocess.run(shell_join(launch_cmd), shell=True)
                             print_sys("Back to CodeGPT.")
                         elif tool_bin in pip_module_map:
                             # Try python -m fallback
                             mod = pip_module_map[tool_bin]
                             print_sys(f"Installed in {elapsed:.1f}s. Launching via python -m {mod}...")
-                            audit_log(f"TOOL_INSTALL", tool_key)
                             launch_cmd = [sys.executable, "-m", mod] + tool.get("default_args", [])
                             subprocess.run(launch_cmd)
                             print_sys("Back to CodeGPT.")
