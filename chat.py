@@ -88,20 +88,60 @@ def tool_venv_bin(key, name):
     return None
 
 
-def ensure_tool_venv(key):
-    """Create a venv for a tool if missing. Returns (venv_path, created_now: bool)."""
+def _ensure_uv():
+    """Ensure uv is importable as a Python module. Installs to user site if missing.
+    Returns True on success, False on failure."""
+    try:
+        subprocess.run(
+            [sys.executable, "-c", "import uv"],
+            check=True, capture_output=True,
+        )
+        return True
+    except Exception:
+        pass
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--user", "uv"],
+            check=True, capture_output=True, timeout=180,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def ensure_tool_venv(key, python_version=None):
+    """Create a venv for a tool if missing. Returns (venv_path, created_now: bool).
+
+    If python_version is specified (e.g. '3.12'), uses uv to fetch that
+    interpreter and create the venv with it — required for tools like aider
+    that don't yet support the host's Python version. Otherwise uses the host
+    Python via the stdlib `venv` module.
+    """
     venv = tool_venv_dir(key)
     if venv.exists() and tool_venv_python(key).exists():
         return venv, False
     TOOL_VENVS_DIR.mkdir(parents=True, exist_ok=True)
-    # Use the host Python to create the venv. Future improvement: probe for
-    # an alternate Python (3.11/3.12) if the host is on a version with broken
-    # wheels for the target tool.
-    subprocess.run(
-        [sys.executable, "-m", "venv", str(venv)],
-        check=True,
-        capture_output=True,
-    )
+
+    if python_version:
+        if not _ensure_uv():
+            raise RuntimeError(
+                f"Tool {key} requires Python {python_version} via uv, "
+                f"but uv could not be installed. Run: pip install --user uv"
+            )
+        # uv handles both fetching the interpreter and creating the venv.
+        subprocess.run(
+            [sys.executable, "-m", "uv", "python", "install", python_version],
+            check=True, capture_output=True, timeout=300,
+        )
+        subprocess.run(
+            [sys.executable, "-m", "uv", "venv", "--python", python_version, str(venv)],
+            check=True, capture_output=True, timeout=120,
+        )
+    else:
+        subprocess.run(
+            [sys.executable, "-m", "venv", str(venv)],
+            check=True, capture_output=True,
+        )
     return venv, True
 
 
@@ -110,39 +150,71 @@ def is_isolated_tool(tool):
     return bool(tool.get("isolated"))
 
 
-def install_in_tool_venv(key, install_cmd):
+def install_in_tool_venv(key, install_cmd, python_version=None):
     """Install a pip-based tool inside its own venv at ~/.codegpt/tool-venvs/<key>/.
 
-    install_cmd is the original list starting with 'pip' or 'pip3'. Returns
-    (ok: bool, error: str). Manual-venv-only by design: pipx would put the
-    bin in a different directory than tool_venv_bin() expects, breaking the
-    discovery + /repair-tool symmetry.
+    install_cmd is the original list starting with 'pip' or 'pip3'. If
+    python_version is specified, the venv uses uv to provision that Python
+    interpreter instead of the host's. Returns (ok: bool, error: str).
+
+    Full pip output is written to ~/.codegpt/tool-venvs/<key>/install.log so
+    users can read the real error when something fails (the returned error
+    string is intentionally short for UI display).
     """
     # Strip leading 'pip' / 'pip3' and the literal 'install' keyword to
     # extract the package args (which may include flags or VCS URLs).
     pkg_args = [a for a in install_cmd[1:] if a != "install"]
+    log_path = tool_venv_dir(key) / "install.log"
+
+    def _write_log(text):
+        try:
+            tool_venv_dir(key).mkdir(parents=True, exist_ok=True)
+            log_path.write_text(text, encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
     try:
-        ensure_tool_venv(key)
+        ensure_tool_venv(key, python_version=python_version)
         py = tool_venv_python(key)
-        # Upgrade pip inside the venv first to avoid old-pip wheel issues.
-        subprocess.run(
-            [str(py), "-m", "pip", "install", "--upgrade", "pip"],
-            capture_output=True, timeout=120,
-        )
-        r = subprocess.run(
-            [str(py), "-m", "pip", "install", *pkg_args],
-            capture_output=True, text=True, timeout=600,
-        )
+
+        if python_version:
+            # uv path: use `uv pip install --python <venv_py>` for fast,
+            # Py3.13-aware dep resolution. uv handles wheels for Python
+            # versions plain pip can't.
+            r = subprocess.run(
+                [
+                    sys.executable, "-m", "uv", "pip", "install",
+                    "--python", str(py),
+                    *pkg_args,
+                ],
+                capture_output=True, text=True, timeout=900,
+            )
+        else:
+            # Stdlib pip path: upgrade pip + setuptools + wheel first
+            # (Python 3.12+ venvs ship without setuptools, breaking sdist
+            # builds for many packages).
+            subprocess.run(
+                [str(py), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+                capture_output=True, timeout=180,
+            )
+            r = subprocess.run(
+                [str(py), "-m", "pip", "install", *pkg_args],
+                capture_output=True, text=True, timeout=900,
+            )
+
+        # Always write full output to the log for diagnosis
+        full_log = f"$ {' '.join(map(str, r.args))}\n\n=== STDOUT ===\n{r.stdout or ''}\n\n=== STDERR ===\n{r.stderr or ''}\n"
+        _write_log(full_log)
+
         if r.returncode == 0:
             return True, ""
         err = (r.stderr or "").strip() or (r.stdout or "").strip()
-        return False, err[:400] or f"pip exit {r.returncode}"
+        short = err.splitlines()[-1] if err else f"exit {r.returncode}"
+        return False, f"{short[:300]}\n  Full log: {log_path}"
     except subprocess.TimeoutExpired:
-        return False, "Install timed out (10min)"
+        return False, f"Install timed out (15min). Log: {log_path}"
     except subprocess.CalledProcessError as ex:
-        # Catches venv-creation failure (ensure_tool_venv uses check=True).
-        # CalledProcessError stashes stderr as bytes — decode for visibility.
+        # Catches venv-creation / uv-bootstrap failure (check=True paths).
         stderr = ""
         if ex.stderr:
             try:
@@ -150,8 +222,10 @@ def install_in_tool_venv(key, install_cmd):
             except Exception:
                 stderr = ""
         msg = f"venv create failed (exit {ex.returncode}): {stderr.strip()}"
+        _write_log(msg)
         return False, msg[:400]
     except Exception as ex:
+        _write_log(f"Unexpected error: {ex}")
         return False, str(ex)[:400]
 
 
@@ -267,7 +341,8 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
         "termux": True,
-        "isolated": True,  # Heavy native deps (tiktoken) — needs own venv
+        "isolated": True,
+        "python_version": "3.12",  # aider explicitly pins <3.13
     },
     "interpreter": {
         "name": "Open Interpreter",
@@ -277,7 +352,8 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY (or --local)",
         "termux": True,
-        "isolated": True,  # litellm + tiktoken pin clashes with CodeGPT deps
+        "isolated": True,
+        "python_version": "3.12",  # litellm + tiktoken Py3.13 issues
     },
     "gpt-engineer": {
         "name": "GPT Engineer",
@@ -287,7 +363,8 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY",
         "termux": True,
-        "isolated": True,  # langchain + tiktoken — same isolation reason
+        "isolated": True,
+        "python_version": "3.12",  # langchain + tiktoken — same Py3.13 wall
     },
     "mentat": {
         "name": "Mentat",
@@ -297,7 +374,8 @@ AI_TOOLS = {
         "default_args": [],
         "needs_key": "OPENAI_API_KEY or ANTHROPIC_API_KEY",
         "termux": True,
-        "isolated": True,  # tiktoken + openai SDK pin
+        "isolated": True,
+        "python_version": "3.12",  # tiktoken + openai SDK pin
     },
     # --- Works everywhere (npm — pure JS) ---
     "opencommit": {
@@ -5434,7 +5512,11 @@ def main():
                     continue
                 removed = repair_tool_venv(target)
                 print_sys(f"{'Wiped' if removed else 'No existing venv for'} {target}. Reinstalling...")
-                ok, err = install_in_tool_venv(target, list(AI_TOOLS[target]["install"]))
+                ok, err = install_in_tool_venv(
+                    target,
+                    list(AI_TOOLS[target]["install"]),
+                    python_version=AI_TOOLS[target].get("python_version"),
+                )
                 if ok:
                     print_sys(f"✓ {target} repaired. Run /{target} to launch.")
                     audit_log("TOOL_REPAIR", target)
@@ -6687,10 +6769,10 @@ def main():
                     install_ok = [False]
                     install_err = [""]
 
-                    def do_tool_install(cmd_list=install_cmd, isolated=use_isolated, key=tool_key):
+                    def do_tool_install(cmd_list=install_cmd, isolated=use_isolated, key=tool_key, py_ver=tool.get("python_version")):
                         try:
                             if isolated:
-                                ok, err = install_in_tool_venv(key, cmd_list)
+                                ok, err = install_in_tool_venv(key, cmd_list, python_version=py_ver)
                                 install_ok[0] = ok
                                 install_err[0] = err
                             else:
