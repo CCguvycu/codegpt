@@ -94,11 +94,57 @@ def save_history(messages, ephemeral=False):
         return False
 
 
+def _is_local_server(url):
+    """Check if a server URL points to localhost (safe for HTTP).
+
+    Fail-closed: if the URL is unparseable, treat as REMOTE (not local)
+    so the HTTP warning is shown. Never silently assume local.
+    """
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").lower()
+        return host in ("localhost", "127.0.0.1", "::1") or (
+            host.startswith("127.") and host.count(".") == 3
+            and all(p.isdigit() and 0 <= int(p) <= 255 for p in host.split("."))
+        )
+    except Exception:
+        return False  # fail-closed: unknown URL = treat as remote
+
+
+def _warn_if_http(url):
+    """Return a warning string if the URL is HTTP on a non-local host."""
+    if url.startswith("http://") and not _is_local_server(url):
+        return "⚠ HTTP connection — traffic is not encrypted"
+    return ""
+
+
+def _enforce_transport_security(url):
+    """Raise ValueError if the server URL is HTTP on a non-local host.
+
+    Unlike _warn_if_http (which is UI-only), this BLOCKS the request from
+    going out. Called before every network request to ensure cleartext
+    traffic never leaves the machine to a remote endpoint.
+
+    Returns the URL unchanged if it passes, or raises ValueError with a
+    user-readable message if it doesn't.
+    """
+    if url.startswith("http://") and not _is_local_server(url):
+        raise ValueError(
+            f"Refused to connect to remote server over HTTP (no encryption).\n"
+            f"Change server to https:// in Settings, or use a local server."
+        )
+    return url
+
+
 def fetch_models(server):
     """Fetch available models from server /models endpoint."""
     try:
-        resp = requests.get(f"{server.rstrip('/')}/models", timeout=5)
+        _enforce_transport_security(server)
+        resp = requests.get(f"{server.rstrip('/')}/models", timeout=5, verify=True)
         return resp.json().get("models", [])
+    except ValueError as ex:
+        _log("fetch_models (blocked)", ex)
+        return []
     except Exception as ex:
         _log("fetch_models", ex)
         return []
@@ -157,7 +203,9 @@ def main(page: ft.Page):
     )
 
     def update_status():
-        status_text.value = f"{config['model']}  |  {len(messages)} msgs  |  {config.get('persona', 'Default')}"
+        http_warn = _warn_if_http(config.get("server", DEFAULT_SERVER))
+        base = f"{config['model']}  |  {len(messages)} msgs  |  {config.get('persona', 'Default')}"
+        status_text.value = f"{base}  {http_warn}" if http_warn else base
         try:
             page.update()
         except Exception:
@@ -245,6 +293,7 @@ def main(page: ft.Page):
             persona = config.get("persona", "Default")
 
             try:
+                _enforce_transport_security(server)
                 response = requests.post(
                     f"{server}/chat",
                     json={
@@ -254,6 +303,7 @@ def main(page: ft.Page):
                     },
                     stream=True,
                     timeout=120,
+                    verify=True,
                 )
                 response.raise_for_status()
 
@@ -308,6 +358,14 @@ def main(page: ft.Page):
                     ]
                     add_ai_bubble(final_text, stats)
 
+            except ValueError as ex:
+                # Transport security block (HTTP to remote host).
+                with state_lock:
+                    remove_thinking()
+                    add_ai_bubble(str(ex), "security")
+                    if messages and messages[-1]["role"] == "user":
+                        messages.pop()
+                        save_history(messages, ephemeral=config.get("ephemeral", False))
             except requests.ConnectionError:
                 with state_lock:
                     remove_thinking()

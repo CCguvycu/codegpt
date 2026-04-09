@@ -1137,23 +1137,47 @@ def hash_pin(pin, salt=None):
 
 
 def set_pin(pin):
-    """Set a new PIN with a random salt."""
-    PIN_FILE.write_text(hash_pin(pin))
+    """Set a new PIN with a random salt. Uses atomic rename to prevent
+    a half-written hash file if the process is killed mid-write."""
+    import tempfile
+    tmp = Path(tempfile.mktemp(dir=PIN_FILE.parent, prefix=".pin_"))
+    tmp.write_text(hash_pin(pin))
+    os.replace(str(tmp), str(PIN_FILE))
 
 
 def verify_pin(pin):
-    """Verify PIN against stored hash."""
+    """Verify PIN against stored hash.
+
+    Supports two formats:
+    - Modern: "salt:hash" (random salt per user, secure)
+    - Legacy: plain hex hash using the static 'codegpt_v1_salt' (weak,
+      vulnerable to rainbow tables if the hash file is exfiltrated)
+
+    On successful verify of a LEGACY hash, auto-upgrades to the modern
+    random-salt format so the weak salt is permanently retired. The user
+    never notices — their PIN stays the same, only the stored format
+    changes.
+    """
     if not PIN_FILE.exists():
         return True
     stored = PIN_FILE.read_text().strip()
-    # Support new format "salt:hash" and legacy format (plain hash)
+
+    # Modern format: "salt:hash"
     if ":" in stored and len(stored.split(":", 1)) == 2:
         salt, expected_hash = stored.split(":", 1)
         pin_hash = hashlib.sha256(f"{salt}:{pin}".encode()).hexdigest()
         return pin_hash == expected_hash
-    # Legacy: static salt
+
+    # Legacy format: static salt — verify, then auto-upgrade if correct.
     legacy_hash = hashlib.sha256(f"codegpt_v1_salt:{pin}".encode()).hexdigest()
-    return stored == legacy_hash
+    if stored == legacy_hash:
+        # Auto-upgrade to modern format with random salt.
+        try:
+            set_pin(pin)
+        except Exception:
+            pass  # Upgrade failed — still return True for this verify
+        return True
+    return False
 
 
 def has_pin():
@@ -2053,9 +2077,45 @@ def copy_to_clipboard(text):
 
 # --- File Context ---
 
-def read_file_context(file_path):
-    """Read a file and return its contents for the AI."""
-    path = Path(file_path.strip().strip('"').strip("'"))
+def read_file_context(file_path, allow_any=False):
+    """Read a file and return its contents for the AI.
+
+    By default, only files inside the project directory (dirname of chat.py)
+    or the current working directory are allowed — prevents accidental
+    exfiltration of ~/.ssh/id_rsa etc. via the /file command. Pass
+    allow_any=True to bypass (used by internal callers that already verified
+    the path via ask_permission).
+    """
+    path = Path(file_path.strip().strip('"').strip("'")).resolve()
+
+    if not allow_any:
+        # Constrain reads to project root or cwd to block path traversal.
+        project_root = Path(__file__).resolve().parent
+        cwd = Path.cwd().resolve()
+        allowed_roots = [project_root, cwd]
+
+        # Also allow ~/.codegpt/ (the user's own data directory).
+        codegpt_dir = (Path.home() / ".codegpt").resolve()
+        allowed_roots.append(codegpt_dir)
+
+        if not any(
+            path == root or root in path.parents
+            for root in allowed_roots
+        ):
+            print_err(
+                f"Access denied: {path}\n"
+                f"  /file is restricted to the project dir, cwd, or ~/.codegpt/.\n"
+                f"  Blocked to prevent accidental exposure of sensitive files."
+            )
+            return None
+
+        # Reject symlinks that point outside allowed roots (symlink escape).
+        if path.is_symlink():
+            real = path.resolve()
+            if not any(real == root or root in real.parents for root in allowed_roots):
+                print_err(f"Symlink escape blocked: {path} → {real}")
+                return None
+
     if not path.exists():
         print_err(f"File not found: {path}")
         return None
@@ -7345,8 +7405,40 @@ def main():
             elif cmd == "/connect":
                 addr = user_input[len("/connect "):].strip()
                 if addr and ask_permission("connect", f"Connect to {addr}"):
+                    # Security: determine if the target is local or remote.
+                    # Local (localhost, 127.x.x.x) = HTTP OK (no MITM risk).
+                    # Remote = require HTTPS to prevent cleartext MITM of
+                    # prompts and AI responses over the network.
+                    # Uses urllib.parse to correctly handle userinfo, IPv6
+                    # brackets, and dot-suffix attacks like 127.0.0.1.evil.com.
+                    from urllib.parse import urlparse
+                    _probe = addr if "://" in addr else f"http://{addr}"
+                    _parsed_host = (urlparse(_probe).hostname or "").lower()
+                    is_local_target = _parsed_host in ("localhost", "127.0.0.1", "::1") or (
+                        _parsed_host.startswith("127.") and _parsed_host.count(".") == 3
+                        and all(p.isdigit() and 0 <= int(p) <= 255 for p in _parsed_host.split("."))
+                    )
+
                     if not addr.startswith("http"):
-                        addr = "http://" + addr
+                        if is_local_target:
+                            addr = "http://" + addr
+                        else:
+                            addr = "https://" + addr
+
+                    # Enforce HTTPS for remote targets — block http:// unless
+                    # the user explicitly passes --insecure (for dev/testing).
+                    if not is_local_target and addr.startswith("http://"):
+                        if "--insecure" in user_input:
+                            print_sys("⚠ Connecting over HTTP (insecure). Prompts will be in cleartext.")
+                            audit_log("REMOTE_CONNECT_INSECURE", addr)
+                        else:
+                            print_err(
+                                "Remote connections require HTTPS to prevent MITM.\n"
+                                "  Use: /connect https://myserver.com\n"
+                                "  Or:  /connect http://myserver.com --insecure  (not recommended)"
+                            )
+                            continue
+
                     if ":" not in addr.split("//")[1]:
                         addr += ":11434"
                     new_url = addr if "/api/chat" in addr else f"{addr.rstrip('/')}/api/chat"
