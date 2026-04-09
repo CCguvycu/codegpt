@@ -1,7 +1,57 @@
 #!/usr/bin/env node
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+// --- `codegpt update` — self-update via npm ---
+// Intercept BEFORE locating Python so update works even if Python is broken.
+if (process.argv[2] === "update" || process.argv[2] === "upgrade") {
+  const pkg = require("../package.json");
+  const currentVersion = pkg.version;
+  console.log(`CodeGPT v${currentVersion} → checking for updates...`);
+
+  // Resolve latest version from registry
+  const view = spawnSync("npm", ["view", "codegpt-ai", "version"], {
+    encoding: "utf8",
+    shell: true,
+  });
+  if (view.status !== 0) {
+    console.error("ERROR: Could not reach npm registry.");
+    console.error(view.stderr || view.stdout);
+    process.exit(1);
+  }
+  const latest = (view.stdout || "").trim();
+  if (!latest) {
+    console.error("ERROR: Empty version response from npm.");
+    process.exit(1);
+  }
+
+  if (latest === currentVersion) {
+    console.log(`Already on latest (${latest}). Nothing to do.`);
+    process.exit(0);
+  }
+
+  console.log(`Updating ${currentVersion} → ${latest} ...`);
+  const install = spawnSync("npm", ["install", "-g", `codegpt-ai@${latest}`], {
+    stdio: "inherit",
+    shell: true,
+  });
+  if (install.status !== 0) {
+    console.error(`\nERROR: Update failed (exit ${install.status}).`);
+    console.error("Try running with elevated privileges or check your npm permissions.");
+    process.exit(install.status || 1);
+  }
+
+  console.log(`\n✓ Updated to v${latest}. Run 'codegpt --version' to confirm.`);
+  process.exit(0);
+}
+
+// --- `codegpt --version` / `-v` ---
+if (process.argv[2] === "--version" || process.argv[2] === "-v") {
+  const pkg = require("../package.json");
+  console.log(`codegpt-ai v${pkg.version}`);
+  process.exit(0);
+}
 
 // Find Python
 const pythonCmds = process.platform === "win32"

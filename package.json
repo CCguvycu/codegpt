@@ -1,11 +1,11 @@
 {
   "name": "codegpt-ai",
-  "version": "2.35.2",
+  "version": "2.35.3",
   "description": "Local AI Assistant Hub — 123 commands, 26 tools, 8 agents, multi-AI, security. No cloud needed.",
   "author": "ArukuX",
   "license": "MIT",
   "bin": {
-    "code": "./bin/ai.js"
+    "codegpt": "./bin/ai.js"
   },
   "scripts": {
     "postinstall": "node bin/setup.js"
