@@ -32,6 +32,64 @@ if (process.argv[2] === "update" || process.argv[2] === "upgrade") {
   }
 
   console.log(`Updating ${currentVersion} → ${latest} ...`);
+
+  if (process.platform === "win32") {
+    // Windows self-update workaround: the currently-running codegpt.cmd
+    // and the ai.js node process both hold file handles on the package
+    // directory npm needs to rename. POSIX lets you rename open files,
+    // Windows does not — so a plain spawnSync("npm install -g ...") hits
+    // EBUSY on rename. Fix: write a small .cmd to TEMP that waits 2s
+    // (long enough for THIS process to exit and release the handles),
+    // runs the install, reports the result, and pauses so the user can
+    // read it. Spawn detached + unref, then exit 0 immediately.
+    const os = require("os");
+    const ts = Date.now();
+    const batPath = path.join(os.tmpdir(), `codegpt-update-${ts}.cmd`);
+    const batBody =
+      "@echo off\r\n" +
+      "timeout /t 2 /nobreak >nul 2>&1\r\n" +
+      `echo Updating codegpt-ai to ${latest}...\r\n` +
+      `call npm install -g codegpt-ai@${latest}\r\n` +
+      "if %ERRORLEVEL% NEQ 0 (\r\n" +
+      "  echo.\r\n" +
+      "  echo Update failed. Try running in an elevated PowerShell.\r\n" +
+      "  pause\r\n" +
+      "  del \"%~f0\"\r\n" +
+      "  exit /b 1\r\n" +
+      ")\r\n" +
+      "echo.\r\n" +
+      `echo Updated to v${latest}. Run 'codegpt --version' in a new shell to confirm.\r\n` +
+      "pause\r\n" +
+      "del \"%~f0\"\r\n";
+
+    try {
+      fs.writeFileSync(batPath, batBody, "utf8");
+    } catch (e) {
+      console.error("ERROR: Could not write update script:", e.message);
+      console.error("\nManual fallback — run this in a fresh PowerShell:");
+      console.error(`  npm install -g codegpt-ai@${latest}\n`);
+      process.exit(1);
+    }
+
+    // Launch the .cmd in a new window via `start` so the user sees the
+    // install progress. detached + ignored stdio releases the parent's
+    // grip on the child so we can exit cleanly.
+    const child = spawn("cmd", ["/c", "start", "CodeGPT Update", "cmd", "/c", batPath], {
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+      windowsHide: false,
+    });
+    child.unref();
+
+    console.log(
+      `\nUpdate dispatched to a new window (Windows file-lock workaround).\n` +
+      `This window will return to your prompt; check the new window for install progress.\n`
+    );
+    process.exit(0);
+  }
+
+  // POSIX: direct sync install works — no file-lock issues.
   const install = spawnSync("npm", ["install", "-g", `codegpt-ai@${latest}`], {
     stdio: "inherit",
     shell: true,
