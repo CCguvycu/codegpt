@@ -48,6 +48,66 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL = "llama3.2"
 CHATS_DIR = Path.home() / ".codegpt" / "conversations"
 
+# --- Colorful palette -----------------------------------------------------
+# Vivid neon hex palette for the CLI. Rich supports truecolor (24-bit) and
+# degrades gracefully to 256-color / 16-color on older terminals, so these
+# hex values work everywhere without breaking anything.
+
+CYBER = {
+    "red":     "#ff2b5e",  # hot pink-red
+    "orange":  "#ff8c42",  # neon orange
+    "yellow":  "#ffd93d",  # bright yellow
+    "lime":    "#b3ff66",  # electric lime
+    "green":   "#00ff9f",  # mint neon
+    "teal":    "#00e5cc",  # teal glow
+    "cyan":    "#00d9ff",  # cyan pop
+    "blue":    "#4d8aff",  # electric blue
+    "indigo":  "#6b5bff",  # deep indigo
+    "purple":  "#b967ff",  # neon purple
+    "pink":    "#ff77e9",  # hot pink
+    "magenta": "#ff4ad6",  # vivid magenta
+    "white":   "#f5f5f5",  # soft white
+    "dim":     "#6a6f77",  # muted gray
+}
+
+# Ordered rainbow for gradient sweeps and per-char cycling.
+RAINBOW = [
+    "red", "orange", "yellow", "lime", "green",
+    "teal", "cyan", "blue", "indigo", "purple", "pink", "magenta",
+]
+
+
+def rainbow(text, bold=True, offset=0):
+    """Render a string with each character painted a different rainbow hue.
+
+    Uses Rich markup — each character gets its own color tag. `offset` lets
+    callers shift the starting color so consecutive lines can animate/stagger.
+    """
+    out = []
+    prefix = "bold " if bold else ""
+    for i, ch in enumerate(text):
+        if ch == " ":
+            out.append(ch)
+            continue
+        hue = CYBER[RAINBOW[(i + offset) % len(RAINBOW)]]
+        out.append(f"[{prefix}{hue}]{ch}[/]")
+    return "".join(out)
+
+
+def gradient_rule(width=None, offset=0):
+    """Return a Rich-markup string: a horizontal rule swept through the rainbow."""
+    from shutil import get_terminal_size
+    w = width or get_terminal_size((80, 20)).columns
+    out = []
+    for i in range(w):
+        hue = CYBER[RAINBOW[(i + offset) % len(RAINBOW)]]
+        out.append(f"[{hue}]─[/]")
+    return "".join(out)
+
+
+# --- End colorful palette -------------------------------------------------
+
+
 # --- Per-tool venv isolation ----------------------------------------------
 # Some pip-based tools (aider, open-interpreter, mentat, gpt-engineer) pull
 # in heavy native deps like tiktoken. On Python 3.13 these can fail to build
@@ -1565,12 +1625,24 @@ def print_header(model):
     clear_screen()
     compact = is_compact()
 
+    # Shortcut refs to the vivid palette — used throughout this function.
+    CY  = CYBER["cyan"]
+    LM  = CYBER["lime"]
+    MG  = CYBER["magenta"]
+    OR  = CYBER["orange"]
+    YL  = CYBER["yellow"]
+    PK  = CYBER["pink"]
+    PR  = CYBER["purple"]
+    GR  = CYBER["green"]
+    DM  = CYBER["dim"]
+    WH  = CYBER["white"]
+
     if compact:
         console.print()
         console.print(Text.from_markup(
-            f"  [bold red]Code[/][bold bright_blue]GPT[/] [dim]v2.0 · {model}[/]"
+            f"  {rainbow('CodeGPT')} [{DM}]v2.0 · {model}[/]"
         ))
-        console.print(Rule(style="dim", characters="─"))
+        console.print(Text.from_markup(gradient_rule(60)))
         console.print()
     else:
         is_local = "localhost" in OLLAMA_URL or "127.0.0.1" in OLLAMA_URL
@@ -1581,22 +1653,31 @@ def print_header(model):
 
         console.print()
 
-        R = "bold red"
-        B = "bold bright_blue"
-        D = "dim"
+        # Banner — each border row picks up the rainbow at a different offset
+        # so the box appears to sweep horizontally across each line.
+        box_width = 50  # inner width between ║ walls
+        bar = "═" * box_width
 
-        # Banner
-        console.print(Text.from_markup(
-            f"[{R}]  ╔══════════════════════════════════════════════════╗[/]\n"
-            f"[{R}]  ║[/]                                                [{R}]║[/]\n"
-            f"[{R}]  ║[/]      [{R}]C[/][{B}]o[/][{R}]d[/][{B}]e[/]  [{R}]G[/][{B}]P[/][{R}]T[/]   [{D}]v2.0[/]                  [{R}]║[/]\n"
-            f"[{R}]  ║[/]      [{D}]local ai · powered by ollama[/]           [{R}]║[/]\n"
-            f"[{R}]  ║[/]                                                [{R}]║[/]\n"
-            f"[{R}]  ╚══════════════════════════════════════════════════╝[/]"
-        ))
+        def sweep(s, off):
+            return "".join(
+                f"[{CYBER[RAINBOW[(i + off) % len(RAINBOW)]]}]{ch}[/]"
+                for i, ch in enumerate(s)
+            )
+
+        console.print(Text.from_markup(f"  [{CYBER['red']}]╔[/]{sweep(bar, 0)}[{CYBER['magenta']}]╗[/]"))
+        console.print(Text.from_markup(f"  [{CYBER['orange']}]║[/]{' ' * box_width}[{CYBER['pink']}]║[/]"))
+        title = f"{rainbow('  C o d e   G P T')}   [{DM}]v2.0[/]"
+        pad = box_width - 24  # visual pad, hand-tuned for the spaced title
+        console.print(Text.from_markup(f"  [{CYBER['yellow']}]║[/]    {title}{' ' * max(0, pad - 4)}[{CYBER['purple']}]║[/]"))
+        subtitle = "local ai · powered by ollama"
+        sub_pad = box_width - len(subtitle) - 4
+        console.print(Text.from_markup(f"  [{CYBER['lime']}]║[/]    [{DM} italic]{subtitle}[/]{' ' * sub_pad}[{CYBER['indigo']}]║[/]"))
+        console.print(Text.from_markup(f"  [{CYBER['green']}]║[/]{' ' * box_width}[{CYBER['blue']}]║[/]"))
+        console.print(Text.from_markup(f"  [{CYBER['teal']}]╚[/]{sweep(bar, 6)}[{CYBER['cyan']}]╝[/]"))
         console.print()
 
-        # Info block — model, server, tokens, security
+        # Info block — each label gets its own accent color so the eye
+        # can scan by hue instead of reading every word.
         total_tok = profile.get("total_tokens", 0)
         total_msgs = profile.get("total_messages", 0)
         sessions = profile.get("total_sessions", 0)
@@ -1610,31 +1691,29 @@ def print_header(model):
                 pass
 
         console.print(Text.from_markup(
-            f"  [{D}]model[/]      [{B}]{model}[/]\n"
-            f"  [{D}]server[/]     [green]{server}[/]\n"
-            f"  [{D}]user[/]       {name}\n"
-            f"  [{D}]memory[/]     {mem_count} items"
+            f"  [{DM}]model[/]      [bold {CY}]{model}[/]\n"
+            f"  [{DM}]server[/]     [bold {LM}]{server}[/]\n"
+            f"  [{DM}]user[/]       [bold {WH}]{name or '—'}[/]\n"
+            f"  [{DM}]memory[/]     [bold {PR}]{mem_count}[/] [{DM}]items[/]"
         ))
         console.print()
 
-        # Token counter
         console.print(Text.from_markup(
-            f"  [{D}]tokens[/]     [{B}]{total_tok:,}[/] [{D}]lifetime[/]\n"
-            f"  [{D}]messages[/]   [{B}]{total_msgs:,}[/] [{D}]across {sessions} sessions[/]"
+            f"  [{DM}]tokens[/]     [bold {MG}]{total_tok:,}[/] [{DM}]lifetime[/]\n"
+            f"  [{DM}]messages[/]   [bold {PK}]{total_msgs:,}[/] [{DM}]across[/] [bold {OR}]{sessions}[/] [{DM}]sessions[/]"
         ))
         console.print()
 
-        # Security status
-        pin_status = f"[green]on[/]" if pin_on else f"[yellow]off[/] [{D}]— /pin-set to enable[/]"
-        sandbox_status = f"[green]active[/]"
+        pin_status = f"[bold {GR}]on[/]" if pin_on else f"[bold {YL}]off[/] [{DM}]— /pin-set to enable[/]"
+        sandbox_status = f"[bold {GR}]active[/]"
         console.print(Text.from_markup(
-            f"  [{D}]security[/]\n"
-            f"    [{D}]pin lock[/]     {pin_status}\n"
-            f"    [{D}]sandbox[/]      {sandbox_status}\n"
-            f"    [{D}]permissions[/]  [{B}]{perms}[/] [{D}]always-allowed[/]\n"
-            f"    [{D}]audit log[/]    [{B}]{audit_count}[/] [{D}]events[/]"
+            f"  [{DM}]security[/]\n"
+            f"    [{DM}]pin lock[/]     {pin_status}\n"
+            f"    [{DM}]sandbox[/]      {sandbox_status}\n"
+            f"    [{DM}]permissions[/]  [bold {CY}]{perms}[/] [{DM}]always-allowed[/]\n"
+            f"    [{DM}]audit log[/]    [bold {MG}]{audit_count}[/] [{DM}]events[/]"
         ))
-        console.print(Rule(style="dim", characters="─"))
+        console.print(Text.from_markup(gradient_rule()))
         console.print()
 
 
@@ -1643,21 +1722,27 @@ def print_welcome(model, available_models):
     import random
     compact = is_compact()
 
-    # Clean welcome — no heavy panels
+    # Rainbow-cycled greeting so the welcome line has the same vibe as the banner.
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
-    console.print(Text(f"  {greeting}. How can I help?", style="bold white"))
+    console.print(Text.from_markup(
+        f"  {rainbow(greeting)}[bold {CYBER['white']}]. How can I help?[/]"
+    ))
     console.print()
 
-    # Suggestions — clean list
+    # Suggestions — each number cycles through the rainbow palette so they
+    # read as a spectrum at a glance.
     items = SUGGESTIONS[:3] if compact else SUGGESTIONS[:5]
     for i, s in enumerate(items, 1):
-        console.print(Text.from_markup(f"  [bright_cyan]{i}.[/] [dim]{s}[/]"))
+        hue = CYBER[RAINBOW[(i * 2) % len(RAINBOW)]]
+        console.print(Text.from_markup(f"  [bold {hue}]{i}.[/] [{CYBER['dim']}]{s}[/]"))
     console.print()
 
     # Tip
     tip = random.choice(TIPS)
-    console.print(Text(f"  tip: {tip}", style="dim italic"))
+    console.print(Text.from_markup(
+        f"  [{CYBER['orange']}]tip:[/] [{CYBER['dim']} italic]{tip}[/]"
+    ))
     console.print()
 
 
@@ -1675,36 +1760,50 @@ def _build_suggestions(max_items=None):
 
 
 def print_user_msg(text):
-    # Clean inline style like Claude Code — no heavy panels
+    # User messages get a magenta left-gutter accent so they pop visually
+    # against the rainbow AI separator and the dim system lines.
     console.print()
-    console.print(Text(f"  {text}", style="bold white"))
+    console.print(Text.from_markup(
+        f"  [bold {CYBER['magenta']}]▎[/] [bold {CYBER['white']}]{text}[/]"
+    ))
     console.print()
 
 
 def print_ai_msg(text, stats=""):
-    # Minimal border, clean markdown — like Claude Code output
+    # AI responses get a full-width rainbow rule as the separator instead
+    # of a solid green one — more colorful while still functioning as a
+    # clear visual divider between turns.
     w = tw()
     compact = is_compact()
 
-    console.print(Rule(style="bright_green", characters="─"))
+    console.print(Text.from_markup(gradient_rule(w)))
     console.print()
     console.print(Markdown(text), width=w - 4)
     if stats and not compact:
-        console.print(Text(f"  {stats}", style="dim"))
+        console.print(Text.from_markup(f"  [{CYBER['dim']}]{stats}[/]"))
     console.print()
 
 
 def print_sys(text):
-    # Simple dim text — no panels, no borders
-    console.print(Text(f"  {text}", style="dim"))
+    # System/status lines — cyan gutter to distinguish from plain dim output
+    # and give the eye an anchor point.
+    console.print(Text.from_markup(
+        f"  [{CYBER['cyan']}]·[/] [{CYBER['dim']}]{text}[/]"
+    ))
 
 
 def print_err(text):
-    console.print(Text(f"  ✗ {text}", style="bold red"))
+    # Errors — vivid hot-red with an icon.
+    console.print(Text.from_markup(
+        f"  [bold {CYBER['red']}]✗[/] [bold {CYBER['red']}]{text}[/]"
+    ))
 
 
 def print_success(text):
-    console.print(Text(f"  ✓ {text}", style="bold green"))
+    # Success — neon mint green with an icon.
+    console.print(Text.from_markup(
+        f"  [bold {CYBER['green']}]✓[/] [bold {CYBER['green']}]{text}[/]"
+    ))
 
 
 def _print_err_panel(text):
