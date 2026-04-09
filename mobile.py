@@ -1,6 +1,7 @@
 """CodeGPT Mobile — Flet app for Android + Desktop. Connects to Ollama."""
 
 import json
+import sys
 import time
 import threading
 from pathlib import Path
@@ -8,12 +9,18 @@ from pathlib import Path
 import flet as ft
 import requests
 
+
+def _log(where, ex):
+    """Lightweight stderr logger for non-fatal failures."""
+    print(f"[mobile] {where}: {ex}", file=sys.stderr)
+
 # --- Config ---
 
-DEFAULT_SERVER = "http://192.168.1.237:5050"  # CodeGPT backend
+DEFAULT_SERVER = "http://localhost:5050"  # CodeGPT backend
 DEFAULT_MODEL = ""  # Empty = use server default
 CONFIG_DIR = Path.home() / ".codegpt"
 MOBILE_CONFIG = CONFIG_DIR / "mobile_config.json"
+MOBILE_HISTORY = CONFIG_DIR / "mobile_history.json"
 
 SYSTEM_PROMPT = """You are an AI modeled after a highly technical, system-focused developer mindset.
 Be direct, concise, and dense with information. No fluff, no filler, no emojis.
@@ -36,14 +43,65 @@ def load_config():
     if MOBILE_CONFIG.exists():
         try:
             return json.loads(MOBILE_CONFIG.read_text())
-        except Exception:
-            pass
-    return {"server": DEFAULT_SERVER, "model": DEFAULT_MODEL, "persona": "Default"}
+        except Exception as ex:
+            _log("load_config", ex)
+    return {
+        "server": DEFAULT_SERVER,
+        "model": DEFAULT_MODEL,
+        "persona": "Default",
+        "ephemeral": False,
+    }
 
 
 def save_config(config):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     MOBILE_CONFIG.write_text(json.dumps(config, indent=2))
+
+
+def load_history():
+    if MOBILE_HISTORY.exists():
+        try:
+            data = json.loads(MOBILE_HISTORY.read_text())
+            if isinstance(data, list):
+                return data
+        except Exception as ex:
+            _log("load_history", ex)
+    return []
+
+
+def save_history(messages, ephemeral=False):
+    """Persist chat history. Returns True on success, False on failure.
+
+    When ephemeral=True, the file is removed (if present) and nothing is
+    written — used so users can opt out of plaintext local persistence.
+    Failures are logged to stderr so disk-full / permission errors are
+    diagnosable instead of silently dropping conversations.
+    """
+    if ephemeral:
+        try:
+            if MOBILE_HISTORY.exists():
+                MOBILE_HISTORY.unlink()
+        except Exception as ex:
+            _log("save_history(ephemeral unlink)", ex)
+        return True
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        # Cap history at last 200 messages to prevent runaway file growth
+        MOBILE_HISTORY.write_text(json.dumps(messages[-200:], indent=2))
+        return True
+    except Exception as ex:
+        _log("save_history", ex)
+        return False
+
+
+def fetch_models(server):
+    """Fetch available models from server /models endpoint."""
+    try:
+        resp = requests.get(f"{server.rstrip('/')}/models", timeout=5)
+        return resp.json().get("models", [])
+    except Exception as ex:
+        _log("fetch_models", ex)
+        return []
 
 
 # --- Main App ---
@@ -60,8 +118,18 @@ def main(page: ft.Page):
 
     # State
     config = load_config()
-    messages = []
+    messages = load_history()
     is_streaming = [False]
+
+    # Concurrency primitives:
+    # - state_lock guards mutations to `messages` and `chat_list.controls`
+    #   that may be touched by both the UI thread (new_chat, send_message)
+    #   and the background do_request worker.
+    # - dialog_token monotonically increments each time the Settings dialog
+    #   is opened; background workers spawned for an old dialog instance
+    #   compare against the current token before applying results.
+    state_lock = threading.RLock()
+    dialog_token = [0]
 
     # --- UI Components ---
 
@@ -166,17 +234,15 @@ def main(page: ft.Page):
         add_thinking_bubble()
         page.update()
 
-        messages.append({"role": "user", "content": text})
-        is_streaming[0] = True
+        with state_lock:
+            messages.append({"role": "user", "content": text})
+            save_history(messages, ephemeral=config.get("ephemeral", False))
+            is_streaming[0] = True
 
         def do_request():
             server = config.get("server", DEFAULT_SERVER)
             model = config.get("model", DEFAULT_MODEL)
             persona = config.get("persona", "Default")
-            system = PERSONAS.get(persona, SYSTEM_PROMPT)
-
-            ollama_messages = [{"role": "system", "content": system}]
-            ollama_messages.extend(messages)
 
             try:
                 response = requests.post(
@@ -230,31 +296,40 @@ def main(page: ft.Page):
                             stats = f"{out_tok} tok | {provider}"
 
                 final_text = "".join(full)
-                messages.append({"role": "assistant", "content": final_text})
+                with state_lock:
+                    messages.append({"role": "assistant", "content": final_text})
+                    save_history(messages, ephemeral=config.get("ephemeral", False))
 
-                # Final render
-                remove_thinking()
-                chat_list.controls[:] = [
-                    c for c in chat_list.controls
-                    if getattr(c, 'key', None) != "ai_latest"
-                ]
-                add_ai_bubble(final_text, stats)
+                    # Final render
+                    remove_thinking()
+                    chat_list.controls[:] = [
+                        c for c in chat_list.controls
+                        if getattr(c, 'key', None) != "ai_latest"
+                    ]
+                    add_ai_bubble(final_text, stats)
 
             except requests.ConnectionError:
-                remove_thinking()
-                add_ai_bubble("Cannot connect to Ollama.\nCheck server IP in settings.", "error")
-                if messages and messages[-1]["role"] == "user":
-                    messages.pop()
+                with state_lock:
+                    remove_thinking()
+                    add_ai_bubble("Cannot connect to Ollama.\nCheck server IP in settings.", "error")
+                    if messages and messages[-1]["role"] == "user":
+                        messages.pop()
+                        save_history(messages, ephemeral=config.get("ephemeral", False))
             except requests.Timeout:
-                remove_thinking()
-                add_ai_bubble("Request timed out.", "error")
-                if messages and messages[-1]["role"] == "user":
-                    messages.pop()
+                with state_lock:
+                    remove_thinking()
+                    add_ai_bubble("Request timed out.", "error")
+                    if messages and messages[-1]["role"] == "user":
+                        messages.pop()
+                        save_history(messages, ephemeral=config.get("ephemeral", False))
             except Exception as ex:
-                remove_thinking()
-                add_ai_bubble(f"Error: {ex}", "error")
-                if messages and messages[-1]["role"] == "user":
-                    messages.pop()
+                _log("do_request", ex)
+                with state_lock:
+                    remove_thinking()
+                    add_ai_bubble(f"Error: {ex}", "error")
+                    if messages and messages[-1]["role"] == "user":
+                        messages.pop()
+                        save_history(messages, ephemeral=config.get("ephemeral", False))
             finally:
                 is_streaming[0] = False
                 update_status()
@@ -268,18 +343,59 @@ def main(page: ft.Page):
     # --- Settings Dialog ---
 
     def open_settings(e):
+        # MED-1 fix: bump the dialog token. Background workers spawned for
+        # this dialog will compare against `dialog_token[0]` before applying
+        # any UI write. If the dialog has since been closed/reopened, the
+        # token will not match and the worker silently discards its result.
+        dialog_token[0] += 1
+        my_token = dialog_token[0]
+
         server_field = ft.TextField(
             value=config.get("server", DEFAULT_SERVER),
-            label="Ollama Server URL",
+            label="Server URL",
             border_radius=12,
             text_size=14,
         )
-        model_field = ft.TextField(
-            value=config.get("model", DEFAULT_MODEL),
-            label="Model",
+
+        # Model dropdown — populated lazily from a background thread to avoid
+        # blocking the UI/ANR if the server is offline (5s timeout per call).
+        current_model = config.get("model", DEFAULT_MODEL)
+        initial_options = [ft.dropdown.Option(current_model)] if current_model else []
+        model_dropdown = ft.Dropdown(
+            value=current_model,
+            label="Model (loading…)",
+            options=initial_options,
             border_radius=12,
             text_size=14,
+            editable=True,  # Allow manual entry as fallback
         )
+
+        def populate_models_async(server):
+            """Fetch models off the UI thread."""
+            models = fetch_models(server)
+            # MED-1: discard stale results from a dialog that has since closed
+            if my_token != dialog_token[0]:
+                return
+            if models:
+                if current_model and current_model not in models:
+                    models.insert(0, current_model)
+                model_dropdown.options = [ft.dropdown.Option(m) for m in models]
+                model_dropdown.label = "Model"
+                if not model_dropdown.value and models:
+                    model_dropdown.value = models[0]
+            else:
+                model_dropdown.label = "Model (server offline — type manually)"
+            try:
+                page.update()
+            except Exception as ex:
+                _log("populate_models_async update", ex)
+
+        threading.Thread(
+            target=populate_models_async,
+            args=(server_field.value.strip().rstrip("/"),),
+            daemon=True,
+        ).start()
+
         persona_dropdown = ft.Dropdown(
             value=config.get("persona", "Default"),
             label="Persona",
@@ -288,10 +404,49 @@ def main(page: ft.Page):
             text_size=14,
         )
 
+        # MED-2: ephemeral mode — when ON, history is never persisted to disk.
+        ephemeral_switch = ft.Switch(
+            value=bool(config.get("ephemeral", False)),
+            label="Ephemeral mode (no history saved)",
+        )
+        plaintext_warning = ft.Text(
+            "⚠ History is stored as plaintext at ~/.codegpt/mobile_history.json",
+            size=11,
+            color=ft.Colors.with_opacity(0.6, ft.Colors.AMBER),
+        )
+
+        def refresh_models(e):
+            server = server_field.value.strip().rstrip("/")
+
+            def worker():
+                models = fetch_models(server)
+                # MED-1: bail if dialog has been closed/reopened since spawn
+                if my_token != dialog_token[0]:
+                    return
+                if models:
+                    model_dropdown.options = [ft.dropdown.Option(m) for m in models]
+                    model_dropdown.label = "Model"
+                    if model_dropdown.value not in models:
+                        model_dropdown.value = models[0]
+                    snack = ft.SnackBar(ft.Text(f"Loaded {len(models)} models"), duration=1500)
+                else:
+                    snack = ft.SnackBar(ft.Text("No models — server offline?"), duration=2000)
+                try:
+                    page.open(snack)
+                    page.update()
+                except Exception as ex:
+                    _log("refresh_models update", ex)
+
+            threading.Thread(target=worker, daemon=True).start()
+
         def save_settings(e):
             config["server"] = server_field.value.strip().rstrip("/")
-            config["model"] = model_field.value.strip()
+            config["model"] = (model_dropdown.value or "").strip()
             config["persona"] = persona_dropdown.value
+            config["ephemeral"] = bool(ephemeral_switch.value)
+            # If user just enabled ephemeral mode, wipe any existing history.
+            if config["ephemeral"]:
+                save_history(messages, ephemeral=True)
             save_config(config)
             update_status()
             dlg.open = False
@@ -300,26 +455,59 @@ def main(page: ft.Page):
 
         def test_connection(e):
             server = server_field.value.strip().rstrip("/")
-            try:
-                resp = requests.get(f"{server}/health", timeout=5)
-                data = resp.json()
-                provider = data.get("provider", "?")
-                model = data.get("model", "?")
-                page.open(ft.SnackBar(
-                    ft.Text(f"Connected. Provider: {provider}, Model: {model}"),
-                    duration=3000,
-                ))
-            except Exception as ex:
-                page.open(ft.SnackBar(ft.Text(f"Failed: {ex}"), duration=3000))
+
+            def worker():
+                try:
+                    resp = requests.get(f"{server}/health", timeout=5)
+                    data = resp.json()
+                    provider = data.get("provider", "?")
+                    model = data.get("model", "?")
+                    snack = ft.SnackBar(
+                        ft.Text(f"Connected. Provider: {provider}, Model: {model}"),
+                        duration=3000,
+                    )
+                except Exception as ex:
+                    _log("test_connection", ex)
+                    snack = ft.SnackBar(ft.Text(f"Failed: {ex}"), duration=3000)
+                # MED-1: bail if dialog has been closed/reopened since spawn
+                if my_token != dialog_token[0]:
+                    return
+                try:
+                    page.open(snack)
+                    page.update()
+                except Exception as ex:
+                    _log("test_connection update", ex)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def clear_history(e):
+            # Close dialog first to prevent flicker, then let new_chat handle
+            # the messages.clear() + file unlink + welcome render in one pass.
+            dlg.open = False
+            page.update()
+            new_chat(None)
+            page.open(ft.SnackBar(ft.Text("History cleared"), duration=1500))
 
         dlg = ft.AlertDialog(
             title=ft.Text("Settings"),
             content=ft.Container(
                 content=ft.Column([
                     server_field,
-                    ft.ElevatedButton("Test Connection", on_click=test_connection, icon=ft.Icons.WIFI),
-                    model_field,
+                    ft.Row([
+                        ft.ElevatedButton("Test", on_click=test_connection, icon=ft.Icons.WIFI),
+                        ft.ElevatedButton("Refresh Models", on_click=refresh_models, icon=ft.Icons.REFRESH),
+                    ], spacing=8),
+                    model_dropdown,
                     persona_dropdown,
+                    ft.Divider(height=8, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
+                    ephemeral_switch,
+                    plaintext_warning,
+                    ft.OutlinedButton(
+                        "Clear History",
+                        on_click=clear_history,
+                        icon=ft.Icons.DELETE_FOREVER,
+                        style=ft.ButtonStyle(color=ft.Colors.RED_300),
+                    ),
                 ], spacing=16, tight=True),
                 width=320,
                 padding=ft.padding.only(top=8),
@@ -334,10 +522,35 @@ def main(page: ft.Page):
     # --- New Chat ---
 
     def new_chat(e):
-        messages.clear()
-        chat_list.controls.clear()
+        # HIGH-2 fix: refuse to clear state while a streaming response is
+        # in flight. Otherwise the background do_request thread would still
+        # be appending tokens to a list/widget the UI just emptied — race.
+        if is_streaming[0]:
+            try:
+                page.open(ft.SnackBar(
+                    ft.Text("Wait for current response to finish."),
+                    duration=1500,
+                ))
+                page.update()
+            except Exception as ex:
+                _log("new_chat snackbar", ex)
+            return
 
-        # Welcome
+        with state_lock:
+            messages.clear()
+            try:
+                if MOBILE_HISTORY.exists():
+                    MOBILE_HISTORY.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception as ex:
+                _log("new_chat unlink", ex)
+            chat_list.controls.clear()
+            _append_welcome()
+        update_status()
+        page.update()
+
+    def _append_welcome():
         chat_list.controls.append(
             ft.Container(
                 content=ft.Column([
@@ -365,8 +578,6 @@ def main(page: ft.Page):
                 alignment=ft.alignment.center,
             )
         )
-        update_status()
-        page.update()
 
     # --- App Bar ---
 
@@ -415,8 +626,19 @@ def main(page: ft.Page):
         ], expand=True, spacing=0),
     )
 
-    # Show welcome
-    new_chat(None)
+    # If we have persisted history, replay it. Otherwise show welcome.
+    if messages:
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "user":
+                add_user_bubble(content)
+            elif role == "assistant":
+                add_ai_bubble(content, "")
+        update_status()
+        page.update()
+    else:
+        new_chat(None)
 
 
 ft.app(target=main)
