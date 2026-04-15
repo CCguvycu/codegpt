@@ -22,6 +22,18 @@ DEFAULT_MODEL = "llama-3.2-3b-preview"
 OLLAMA_MODEL = "llama3.2"
 PROVIDER = "groq" if (GROQ_API_KEY and HAS_GROQ) else "ollama"
 
+THESYS_API_KEY = os.environ.get("THESYS_API_KEY", "")
+THESYS_BASE_URL = os.environ.get("THESYS_BASE_URL", "https://api.thesys.dev/v1/embed")
+THESYS_MODEL = os.environ.get("THESYS_MODEL", "c1/anthropic/claude-sonnet-4/v-20250815")
+THESYS_TIMEOUT = 60
+
+if THESYS_API_KEY:
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(THESYS_BASE_URL)
+    if _parsed.scheme != "https" or not _parsed.netloc:
+        print(f"  [security] THESYS_BASE_URL must be https:// (got {_parsed.scheme!r}). GenUI disabled.")
+        THESYS_API_KEY = ""
+
 SYSTEM_PROMPT = """You are an AI modeled after a highly technical, system-focused developer mindset.
 Be direct, concise, and dense with information. No fluff, no filler, no emojis.
 Give conclusions first, then minimal necessary explanation.
@@ -225,6 +237,13 @@ body {
             <option>Roast</option><option>Minimal</option>
         </select>
         <div style="border-top:1px solid #30363d;margin-top:16px;padding-top:12px">
+            <label style="color:#8b949e;font-size:12px;display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="genui-toggle" style="width:16px;height:16px;cursor:pointer">
+                <span>Generative UI mode (beta)</span>
+            </label>
+            <div id="genui-hint" style="color:#484f58;font-size:11px;margin-top:4px;padding-left:24px">Checking server...</div>
+        </div>
+        <div style="border-top:1px solid #30363d;margin-top:16px;padding-top:12px">
             <button onclick="showInstallGuide()" style="width:100%;background:#238636;border:none;color:white;padding:10px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:700" id="install-btn-settings">Install App</button>
         </div>
         <div class="modal-btns">
@@ -242,10 +261,32 @@ const status = document.getElementById('status');
 
 let messages = [];
 let persona = localStorage.getItem('persona') || 'Default';
+let genuiMode = false;
+let genuiConfigured = false;
 let msgCount = 0;
 let streaming = false;
 
 document.getElementById('persona-select').value = persona;
+const genuiToggle = document.getElementById('genui-toggle');
+const genuiHint = document.getElementById('genui-hint');
+genuiToggle.checked = false;
+genuiToggle.disabled = true;
+
+fetch('/genui-status').then(r => r.json()).then(s => {
+    genuiConfigured = !!s.configured;
+    if (genuiConfigured) {
+        genuiToggle.disabled = false;
+        genuiMode = localStorage.getItem('genuiMode') === '1';
+        genuiToggle.checked = genuiMode;
+        genuiHint.textContent = 'Routes to Thesys C1. Raw payload shown until SDK lands.';
+        if (genuiMode) status.textContent = `${persona} | GenUI | ${msgCount} msgs`;
+    } else {
+        localStorage.setItem('genuiMode', '0');
+        genuiHint.textContent = 'Set THESYS_API_KEY on the server to enable.';
+    }
+}).catch(() => {
+    genuiHint.textContent = 'Status check failed.';
+});
 
 // Welcome
 showWelcome();
@@ -317,13 +358,44 @@ async function send() {
     msgCount++;
     streaming = true;
     sendBtn.disabled = true;
-    status.textContent = 'Streaming...';
+    status.textContent = (genuiMode && genuiConfigured) ? 'Thesys C1...' : 'Streaming...';
+
+    if (genuiMode && genuiConfigured) {
+        try {
+            const resp = await fetch('/chat-genui', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({messages: messagesForWire(messages, true), persona}),
+            });
+            const data = await resp.json();
+            removeThinking();
+            if (!resp.ok) throw new Error(data.error || 'GenUI request failed');
+            const panel = document.createElement('div');
+            panel.className = 'msg ai';
+            panel.innerHTML = '<div class="role">AI (GenUI)</div>'
+                + '<div style="font-size:11px;color:#8b949e;margin-bottom:6px">Raw C1 payload — render via @thesysai/genui-sdk (planned)</div>'
+                + '<pre><code>' + escapeHtml(data.content || '') + '</code></pre>'
+                + '<div class="stats">thesys</div>';
+            chat.appendChild(panel);
+            chat.scrollTop = chat.scrollHeight;
+            if (data.content) messages.push({role: 'assistant', content: data.content, _genui: true});
+        } catch(e) {
+            removeThinking();
+            addMsg('ai', 'GenUI error: ' + e.message);
+            if (messages.length && messages[messages.length-1].role === 'user') messages.pop();
+        }
+        streaming = false;
+        sendBtn.disabled = false;
+        status.textContent = `${persona} | GenUI | ${msgCount} msgs`;
+        input.focus();
+        return;
+    }
 
     try {
         const resp = await fetch('/chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({messages, persona}),
+            body: JSON.stringify({messages: messagesForWire(messages, false), persona}),
         });
 
         const reader = resp.body.getReader();
@@ -393,12 +465,25 @@ function closeSettings() { document.getElementById('settings-modal').classList.r
 function saveSettings() {
     persona = document.getElementById('persona-select').value;
     localStorage.setItem('persona', persona);
-    status.textContent = `Persona: ${persona}`;
+    if (genuiConfigured) {
+        genuiMode = genuiToggle.checked;
+        localStorage.setItem('genuiMode', genuiMode ? '1' : '0');
+    }
+    status.textContent = genuiMode ? `Persona: ${persona} | GenUI` : `Persona: ${persona}`;
     closeSettings();
 }
 
 function escapeHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function messagesForWire(msgs, includeGenui) {
+    const out = [];
+    for (const m of msgs) {
+        if (!includeGenui && m._genui) continue;
+        out.push({role: m.role, content: m.content});
+    }
+    return out;
 }
 
 function formatMarkdown(text) {
@@ -667,6 +752,56 @@ def _stream_ollama(messages, system):
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "provider": PROVIDER})
+
+
+@app.route("/genui-status")
+def genui_status():
+    return jsonify({"configured": bool(THESYS_API_KEY)})
+
+
+@app.route("/chat-genui", methods=["POST"])
+def chat_genui():
+    if not THESYS_API_KEY:
+        return jsonify({"error": "THESYS_API_KEY not configured on server"}), 503
+
+    data = request.get_json() or {}
+    msgs = data.get("messages", [])
+    persona = data.get("persona", "Default")
+    if not msgs:
+        return jsonify({"error": "No messages"}), 400
+
+    system = PERSONAS.get(persona, SYSTEM_PROMPT)
+    full_messages = [{"role": "system", "content": system}] + msgs
+
+    try:
+        r = http_requests.post(
+            f"{THESYS_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {THESYS_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"model": THESYS_MODEL, "messages": full_messages, "stream": False},
+            timeout=THESYS_TIMEOUT,
+        )
+        r.raise_for_status()
+        payload = r.json()
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            print("  [genui] malformed Thesys response: missing/invalid choices")
+            return jsonify({"error": "Malformed upstream response"}), 502
+        message = choices[0].get("message") or {}
+        content = message.get("content", "") if isinstance(message, dict) else ""
+        return jsonify({"content": content, "provider": "thesys"})
+    except http_requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        print(f"  [genui] upstream HTTPError: {e}")
+        return jsonify({"error": "Upstream request failed"}), status
+    except http_requests.RequestException as e:
+        print(f"  [genui] upstream RequestException: {e}")
+        return jsonify({"error": "Upstream request failed"}), 502
+    except ValueError as e:
+        print(f"  [genui] JSON decode failure: {e}")
+        return jsonify({"error": "Malformed upstream response"}), 502
 
 
 def generate_ssl_cert():
